@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -71,7 +72,14 @@ func CaptureScrollbackContext(ctx context.Context, session, paneID string, confi
 	}
 
 	// Format pane target
-	target := fmt.Sprintf("%s:%s", session, paneID)
+	var target string
+	if strings.HasPrefix(paneID, "%") {
+		// Unique pane ID, use as is
+		target = paneID
+	} else {
+		// Relative pane index, qualify with session
+		target = fmt.Sprintf("%s:%s", session, paneID)
+	}
 
 	// Capture pane output
 	content, err := tmux.CapturePaneOutputContext(ctx, target, config.Lines)
@@ -187,7 +195,7 @@ func (c *Capturer) captureScrollbackEnhanced(cp *Checkpoint, config ScrollbackCo
 	for i := range cp.Session.Panes {
 		pane := &cp.Session.Panes[i]
 
-		capture, err := CaptureScrollback(cp.SessionName, fmt.Sprintf("%d", pane.Index), config)
+		capture, err := CaptureScrollback(cp.SessionName, pane.ID, config)
 		if err != nil {
 			// Log error but continue with other panes
 			fmt.Fprintf(os.Stderr, "Warning: failed to capture scrollback for pane %d: %v\n", pane.Index, err)

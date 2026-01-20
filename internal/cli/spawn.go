@@ -21,6 +21,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/gemini"
 	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
+	"github.com/Dicklesworthstone/ntm/internal/opencode"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/persona"
 	"github.com/Dicklesworthstone/ntm/internal/plugins"
@@ -102,6 +103,7 @@ type SpawnOptions struct {
 	CCCount     int
 	CodCount    int
 	GmiCount    int
+	OcCount     int
 	UserPane    bool
 	AutoRestart bool
 	RecipeName  string
@@ -458,6 +460,7 @@ Examples:
 			ccCount := agentSpecs.ByType(AgentTypeClaude).TotalCount()
 			codCount := agentSpecs.ByType(AgentTypeCodex).TotalCount()
 			gmiCount := agentSpecs.ByType(AgentTypeGemini).TotalCount()
+			ocCount := agentSpecs.ByType(AgentTypeOpenCode).TotalCount()
 
 			// Apply defaults
 			if len(agentSpecs) == 0 && len(cfg.ProjectDefaults) > 0 {
@@ -470,11 +473,15 @@ Examples:
 				if v, ok := cfg.ProjectDefaults["gmi"]; ok && v > 0 {
 					agentSpecs = append(agentSpecs, AgentSpec{Type: AgentTypeGemini, Count: v})
 				}
+				if v, ok := cfg.ProjectDefaults["oc"]; ok && v > 0 {
+					agentSpecs = append(agentSpecs, AgentSpec{Type: AgentTypeOpenCode, Count: v})
+				}
 				ccCount = agentSpecs.ByType(AgentTypeClaude).TotalCount()
 				codCount = agentSpecs.ByType(AgentTypeCodex).TotalCount()
 				gmiCount = agentSpecs.ByType(AgentTypeGemini).TotalCount()
+				ocCount = agentSpecs.ByType(AgentTypeOpenCode).TotalCount()
 				if !IsJSONOutput() && len(agentSpecs) > 0 {
-					fmt.Printf("Using default configuration: %d cc, %d cod, %d gmi\n", ccCount, codCount, gmiCount)
+					fmt.Printf("Using default configuration: %d cc, %d cod, %d gmi, %d oc\n", ccCount, codCount, gmiCount, ocCount)
 				}
 			}
 
@@ -538,6 +545,7 @@ Examples:
 				CCCount:            ccCount,
 				CodCount:           codCount,
 				GmiCount:           gmiCount,
+				OcCount:            ocCount,
 				UserPane:           !noUserPane,
 				AutoRestart:        autoRestart,
 				RecipeName:         recipeName,
@@ -618,6 +626,9 @@ Examples:
 		}
 	}
 
+	// Register OpenCode flag
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeOpenCode, &agentSpecs), "oc", "OpenCode agents (N or N:model)")
+
 	return cmd
 }
 
@@ -648,9 +659,9 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	// Calculate total agents - either from Agents slice or explicit counts (legacy path)
 	var totalAgents int
 	if len(opts.Agents) == 0 {
-		totalAgents = opts.CCCount + opts.CodCount + opts.GmiCount
+		totalAgents = opts.CCCount + opts.CodCount + opts.GmiCount + opts.OcCount
 		if totalAgents == 0 {
-			return outputError(fmt.Errorf("no agents specified (use --cc, --cod, --gmi, or plugin flags)"))
+			return outputError(fmt.Errorf("no agents specified (use --cc, --cod, --gmi, --oc, or plugin flags)"))
 		}
 	} else {
 		totalAgents = len(opts.Agents)
@@ -680,6 +691,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			"NTM_AGENT_COUNT_CC":    fmt.Sprintf("%d", opts.CCCount),
 			"NTM_AGENT_COUNT_COD":   fmt.Sprintf("%d", opts.CodCount),
 			"NTM_AGENT_COUNT_GMI":   fmt.Sprintf("%d", opts.GmiCount),
+			"NTM_AGENT_COUNT_OC":    fmt.Sprintf("%d", opts.OcCount),
 			"NTM_AGENT_COUNT_TOTAL": fmt.Sprintf("%d", totalAgents),
 		},
 	}
@@ -896,6 +908,55 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		}
 	}
 
+	// Start OpenCode server if needed
+	var opencodeServerURL string
+	if opts.OcCount > 0 {
+		mgr, err := opencode.NewManager()
+		if err != nil {
+			if !IsJSONOutput() {
+				output.PrintWarningf("Failed to create OpenCode manager: %v", err)
+			}
+		} else {
+			if !IsJSONOutput() {
+				fmt.Printf("Starting OpenCode server for %s...\n", dir)
+			}
+			info, err := mgr.Start(dir)
+			if err != nil {
+				// Log warning but don't fail hard - agents might still work if server is externally managed?
+				// But user explicitly asked for this integration.
+				if !IsJSONOutput() {
+					output.PrintWarningf("Failed to start OpenCode server: %v", err)
+				}
+				return outputError(fmt.Errorf("starting opencode server: %w", err))
+			} else {
+				opencodeServerURL = fmt.Sprintf("http://127.0.0.1:%d", info.Port)
+				if !IsJSONOutput() {
+					fmt.Printf("✓ OpenCode server running at %s\n", opencodeServerURL)
+				}
+
+				// Setup cleanup hook on session close
+				// We want to kill the server when the tmux session is destroyed
+				// Command: ntm opencode stop <abs-path-to-project> --force
+				// Use absolute path to ntm itself to be safe
+				if exe, err := os.Executable(); err == nil {
+					// Use double quotes for run-shell command component
+					cleanupCmd := fmt.Sprintf("%s opencode stop %s --force", config.ShellQuote(exe), config.ShellQuote(dir))
+
+					// Set the hook
+					if err := tmux.DefaultClient.RunSilent("set-hook", "-t", opts.Session, "session-destroyed", fmt.Sprintf("run-shell '%s'", cleanupCmd)); err != nil {
+						if !IsJSONOutput() {
+							output.PrintWarningf("Failed to set cleanup hook: %v", err)
+						}
+					} else {
+						if !IsJSONOutput() {
+							fmt.Println("✓ Configured auto-cleanup on session exit")
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// Build recovery context if enabled (smart session recovery)
 	// Note: rc is kept as a pointer so we can format per-agent-type in the goroutines
 	var rc *RecoveryContext
@@ -939,6 +1000,8 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			agentCmdTemplate = cfg.Agents.Codex
 		case AgentTypeGemini:
 			agentCmdTemplate = cfg.Agents.Gemini
+		case AgentTypeOpenCode:
+			agentCmdTemplate = cfg.Agents.OpenCode
 		default:
 			// Check plugins
 			if p, ok := opts.PluginMap[string(agent.Type)]; ok {
@@ -1013,6 +1076,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			ProjectDir:       dir,
 			SystemPromptFile: systemPromptFile,
 			PersonaName:      personaName,
+			OpenCodeServerURL: opencodeServerURL,
 		})
 		if err != nil {
 			return outputError(fmt.Errorf("generating command for %s agent: %w", agent.Type, err))
@@ -1144,8 +1208,24 @@ func spawnSessionLogic(opts SpawnOptions) error {
 					finalPrompt = agentSpawnCtx.AnnotatePrompt(finalPrompt, true)
 				}
 
-				// Determine delay
-				if isStaggered {
+				// Determine delay and wait for readiness
+				if agentType == AgentTypeOpenCode {
+					// OpenCode requires waiting for TUI to be fully interactive
+					// Poll for readiness up to 10 seconds
+					deadline := time.Now().Add(10 * time.Second)
+                    
+					for time.Now().Before(deadline) {
+						// Capture enough lines to see the "Ask anything..." prompt (which might be centered)
+						out, _ := tmux.CapturePaneOutput(paneID, 20)
+						state := determineAgentState(out, string(agentType))
+						
+						if state == "idle" {
+							break
+						}
+						time.Sleep(500 * time.Millisecond)
+					}
+
+				} else if isStaggered {
 					// For staggered delivery, we sleep the calculated delay.
 					// Since this goroutine runs in parallel with others starting at T=0,
 					// sleeping 'promptDelay' achieves the correct absolute timing (approx).
@@ -1279,12 +1359,14 @@ func spawnSessionLogic(opts SpawnOptions) error {
 				agentCounts.Codex++
 			case tmux.AgentGemini:
 				agentCounts.Gemini++
+			case tmux.AgentOpenCode:
+				agentCounts.OpenCode++
 			default:
 				// Other/plugin agents
-				agentCounts.User++ // Maybe separate category?
+				agentCounts.User++
 			}
 		}
-		agentCounts.Total = agentCounts.Claude + agentCounts.Codex + agentCounts.Gemini
+		agentCounts.Total = agentCounts.Claude + agentCounts.Codex + agentCounts.Gemini + agentCounts.OpenCode + agentCounts.User
 
 		// Build stagger config if enabled
 		var staggerCfg *output.StaggerConfig
@@ -2465,12 +2547,14 @@ func sendInitPromptToReadyAgents(session, prompt string) (int, error) {
 
 	for _, pane := range panes {
 		at := detectAgentTypeFromTitle(pane.Title)
+
 		if at == "user" || at == "unknown" {
 			continue
 		}
 
 		scrollback, _ := tmux.CapturePaneOutput(pane.ID, 10)
 		state := determineAgentState(scrollback, at)
+
 		if state != "idle" {
 			continue
 		}

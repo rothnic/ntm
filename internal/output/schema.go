@@ -79,10 +79,11 @@ type PaneResponse struct {
 
 // AgentCountsResponse is the standard format for agent counts
 type AgentCountsResponse struct {
-	Claude int `json:"claude"`
-	Codex  int `json:"codex"`
-	Gemini int `json:"gemini"`
-	User   int `json:"user,omitempty"`
+	Claude   int `json:"claude"`
+	Codex    int `json:"codex"`
+	Gemini   int `json:"gemini"`
+	OpenCode int `json:"opencode,omitempty"`
+	User     int `json:"user,omitempty"`
 	Total  int `json:"total"`
 }
 

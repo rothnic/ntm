@@ -119,7 +119,7 @@ func (m *Manager) Start(projectPath string) (*ServerInfo, error) {
 	defer logFd.Close()
 
 	// Start opencode server
-	cmd := exec.Command("opencode", "serve", "--host", "127.0.0.1", "--port", fmt.Sprintf("%d", port), projectPath)
+	cmd := exec.Command("opencode", "serve", "--hostname", "127.0.0.1", "--port", fmt.Sprintf("%d", port))
 	cmd.Stdout = logFd
 	cmd.Stderr = logFd
 	cmd.Dir = projectPath
@@ -146,11 +146,18 @@ func (m *Manager) Start(projectPath string) (*ServerInfo, error) {
 	// Release the process so it runs independently
 	_ = cmd.Process.Release()
 
-	// Wait a moment for server to start
-	time.Sleep(500 * time.Millisecond)
+	// Wait up to 5 seconds for server to start
+	serverStarted := false
+	for i := 0; i < 50; i++ {
+		if m.isServerHealthy(port) {
+			serverStarted = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Verify server is responding
-	if !m.isServerHealthy(port) {
+	if !serverStarted {
 		return nil, fmt.Errorf("server started but not responding on port %d", port)
 	}
 
@@ -377,18 +384,32 @@ func (m *Manager) isServerHealthy(port int) bool {
 
 // countConnections counts active connections to the server port
 func (m *Manager) countConnections(port int) int {
-	// Use ss command to count established connections
-	cmd := exec.Command("ss", "-Htan", fmt.Sprintf("sport = :%d", port), "state", "established")
-	output, err := cmd.Output()
-	if err != nil {
-		return 0
+	// Try ss command first (Linux standard)
+	if path, err := exec.LookPath("ss"); err == nil {
+		cmd := exec.Command(path, "-Htan", fmt.Sprintf("sport = :%d", port), "state", "established")
+		output, err := cmd.Output()
+		if err == nil {
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			if len(lines) == 1 && lines[0] == "" {
+				return 0
+			}
+			return len(lines)
+		}
 	}
 
-	// Count lines (each line is one connection)
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) == 1 && lines[0] == "" {
-		return 0
+	// Fallback to lsof (macOS/Unix)
+	if path, err := exec.LookPath("lsof"); err == nil {
+		// -i :port -sTCP:ESTABLISHED -t (terse, just PIDs)
+		cmd := exec.Command(path, "-i", fmt.Sprintf(":%d", port), "-sTCP:ESTABLISHED", "-t")
+		output, err := cmd.Output()
+		if err == nil {
+			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+			if len(lines) == 1 && lines[0] == "" {
+				return 0
+			}
+			return len(lines)
+		}
 	}
 
-	return len(lines)
+	return 0
 }

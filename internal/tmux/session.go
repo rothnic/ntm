@@ -35,6 +35,7 @@ const (
 	AgentCursor   AgentType = "cursor"
 	AgentWindsurf AgentType = "windsurf"
 	AgentAider    AgentType = "aider"
+	AgentOpenCode AgentType = "oc"
 	AgentUser     AgentType = "user"
 )
 
@@ -58,6 +59,8 @@ func (a AgentType) ProfileName() string {
 		return "Windsurf"
 	case AgentAider:
 		return "Aider"
+	case AgentOpenCode:
+		return "OpenCode"
 	case AgentUser:
 		return "User"
 	default:

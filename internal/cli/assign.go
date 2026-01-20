@@ -16,11 +16,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/assign"
 	"github.com/Dicklesworthstone/ntm/internal/assignment"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/completion"
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
@@ -764,6 +764,9 @@ func detectAgentTypeFromTitle(title string) string {
 	if strings.Contains(title, "__gmi") || strings.Contains(title, "gemini") {
 		return "gemini"
 	}
+	if strings.Contains(title, "__oc") || strings.Contains(title, "opencode") {
+		return "opencode"
+	}
 	if strings.Contains(title, "__user") || strings.Contains(title, "user") {
 		return "user"
 	}
@@ -800,6 +803,7 @@ func determineAgentState(scrollback, agentType string) string {
 		"$", ">", ">>> ", "claude>", "codex>", "gemini>",
 		"What would you like", "How can I help",
 		"Ready for", "Waiting for",
+		"Ask anything...", "ctrl+t variants",
 	}
 
 	for _, p := range idlePatterns {
