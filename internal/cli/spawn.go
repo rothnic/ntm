@@ -910,6 +910,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 
 	// Start OpenCode server if needed
 	var opencodeServerURL string
+	var opencodeSessionID string
 	if opts.OcCount > 0 {
 		mgr, err := opencode.NewManager()
 		if err != nil {
@@ -951,6 +952,23 @@ func spawnSessionLogic(opts SpawnOptions) error {
 						if !IsJSONOutput() {
 							fmt.Println("✓ Configured auto-cleanup on session exit")
 						}
+					}
+				}
+
+				// Create persistent session for this spawn
+				// This allows us to deterministically attach to the correct session
+				// and monitor it across restarts or multiple tmux panes.
+				sessionTitle := fmt.Sprintf("NTM Session [%s]", opts.Session)
+				sid, err := mgr.CreateSession(dir, sessionTitle)
+				if err != nil {
+					// Fallback to legacy behavior (no specific session ID, just attach to latest/new)
+					if !IsJSONOutput() {
+						output.PrintWarningf("Failed to create named persistent session: %v", err)
+					}
+				} else {
+					opencodeSessionID = sid
+					if !IsJSONOutput() {
+						fmt.Printf("✓ Created persistent session: %s\n", sid)
 					}
 				}
 			}
@@ -1077,6 +1095,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			SystemPromptFile: systemPromptFile,
 			PersonaName:      personaName,
 			OpenCodeServerURL: opencodeServerURL,
+			OpenCodeSessionID: opencodeSessionID,
 		})
 		if err != nil {
 			return outputError(fmt.Errorf("generating command for %s agent: %w", agent.Type, err))
@@ -1125,6 +1144,16 @@ func spawnSessionLogic(opts SpawnOptions) error {
 
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
 			return outputError(fmt.Errorf("launching %s agent: %w", agent.Type, err))
+		}
+
+		// If OpenCode agent, store session ID in pane options for UnifiedDetector
+		if agent.Type == AgentTypeOpenCode && opencodeSessionID != "" {
+			// Using @-prefixed user option
+			if err := tmux.DefaultClient.RunSilent("set-option", "-p", "-t", pane.ID, "@opencode_session_id", opencodeSessionID); err != nil {
+				if !IsJSONOutput() {
+					fmt.Printf("⚠ Warning: could not set session ID on pane: %v\n", err)
+				}
+			}
 		}
 
 		// Parallelize post-launch setup and prompt delivery

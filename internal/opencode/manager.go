@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
@@ -11,6 +12,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/sst/opencode-sdk-go"
+	"github.com/sst/opencode-sdk-go/option"
 )
 
 // Manager handles lifecycle of per-project opencode servers
@@ -360,6 +364,37 @@ func (m *Manager) URL(projectPath string) (string, error) {
 	}
 
 	return fmt.Sprintf("http://127.0.0.1:%d", info.Port), nil
+}
+
+// Client returns a configured OpenCode SDK client for the given project
+func (m *Manager) Client(projectPath string) (*opencode.Client, error) {
+	url, err := m.URL(projectPath)
+	if err != nil {
+		return nil, err
+	}
+	return opencode.NewClient(
+		option.WithBaseURL(url),
+	), nil
+}
+
+// CreateSession creates a new persistent session for the project
+func (m *Manager) CreateSession(projectPath string, title string) (string, error) {
+	client, err := m.Client(projectPath)
+	if err != nil {
+		return "", err
+	}
+
+	// Create session
+	// Using opencode.String helper to avoid importing internal/param
+	session, err := client.Session.New(context.Background(), opencode.SessionNewParams{
+		Title:     opencode.String(title),
+		Directory: opencode.String(projectPath),
+	})
+	if err != nil {
+		return "", fmt.Errorf("create session: %w", err)
+	}
+
+	return session.ID, nil
 }
 
 // isProcessRunning checks if a process with the given PID is running
