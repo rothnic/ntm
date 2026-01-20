@@ -1065,3 +1065,28 @@ func (c *Client) IsAttached(session string) bool {
 func IsAttached(session string) bool {
 	return DefaultClient.IsAttached(session)
 }
+// GetPanePath returns the current working directory of a pane
+func (c *Client) GetPanePath(paneID string) (string, error) {
+	return c.Run("display-message", "-p", "-t", paneID, "#{pane_current_path}")
+}
+
+// GetPanePath returns the current working directory of a pane (default client)
+func GetPanePath(paneID string) (string, error) {
+	return DefaultClient.GetPanePath(paneID)
+}
+
+// GetUserOption returns a user option from a pane (e.g. @opencode_session_id)
+func (c *Client) GetUserOption(paneID, optionName string) (string, error) {
+	// For options, we use show-options.
+	// -p = pane options seems to be what we want if we set it on the pane?
+	// Wait, we set it with `set-option -p -t paneID @foo bar`.
+	// So we should retrieve it similarly.
+	// Note: show-options output format is "@option value".
+	// We want just the value. -v flag gives just value.
+	return c.Run("show-options", "-p", "-t", paneID, "-v", optionName)
+}
+
+// GetUserOption returns a user option from a pane (default client)
+func GetUserOption(paneID, optionName string) (string, error) {
+	return DefaultClient.GetUserOption(paneID, optionName)
+}

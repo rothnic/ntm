@@ -5,26 +5,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/opencode"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	opencode_sdk "github.com/sst/opencode-sdk-go"
 )
 
 // UnifiedDetector implements the Detector interface by combining
 // activity, prompt, and error detection into a unified status check.
 type UnifiedDetector struct {
-	config DetectorConfig
+	config    DetectorConfig
+	ocManager *opencode.Manager
 }
 
 // NewDetector creates a new UnifiedDetector with default configuration
 func NewDetector() *UnifiedDetector {
+	mgr, _ := opencode.NewManager() // Best effort, ignore error
 	return &UnifiedDetector{
-		config: DefaultConfig(),
+		config:    DefaultConfig(),
+		ocManager: mgr,
 	}
 }
 
 // NewDetectorWithConfig creates a new UnifiedDetector with custom configuration
 func NewDetectorWithConfig(config DetectorConfig) *UnifiedDetector {
+	mgr, _ := opencode.NewManager()
 	return &UnifiedDetector{
-		config: config,
+		config:    config,
+		ocManager: mgr,
 	}
 }
 
@@ -83,6 +90,7 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 		return StateWorking, ErrorNone
 	}
 
+
 	// Heuristic: if no recent activity and output suggests agent is waiting,
 	// prefer idle over unknown. This catches cases where:
 	// - The prompt pattern isn't recognized but the agent is clearly done
@@ -103,6 +111,59 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 
 	// Default to unknown only for user/shell panes when we truly can't determine state
 	return StateUnknown, ErrorNone
+}
+
+// resolveOpenCodeStatus queries the OpenCode SDK for the precise status of a session.
+func (d *UnifiedDetector) resolveOpenCodeStatus(paneID, sessionID string) AgentState {
+	if d.ocManager == nil {
+		return StateUnknown
+	}
+
+	// Calculate project path (needed to get client)
+	// In NTM, tmux session usually rooted at project path.
+	// We can try to get it from tmux, or pass it in.
+	// For now, let's assume valid Client retrieval requires path.
+	// But Manager.Client needs path to find port.
+	// The sessionID alone isn't enough unless we scan all servers.
+	// However, we know OpenCode server runs per-project.
+	// Wait! We stored session_id in the pane. We ALSO need to know WHICH server.
+	// We can store @opencode_project_path on the pane too?
+	// OR we can assume current directory of pane is project root?
+	
+	// Better approach: Since we don't have project path handy here easily without more tmux calls,
+	// let's peek at the pane's current path.
+	panePath, err := tmux.GetPanePath(paneID)
+	if err != nil {
+		return StateUnknown
+	}
+	
+	client, err := d.ocManager.Client(panePath)
+	if err != nil {
+		// Maybe server not running?
+		return StateUnknown 
+	}
+	
+	// Query session messages to determine state
+	messages, err := client.Session.Messages(context.Background(), sessionID, opencode_sdk.SessionMessagesParams{})
+	if err != nil {
+		return StateUnknown
+	}
+
+	if messages == nil || len(*messages) == 0 {
+		return StateIdle // No messages = Ready for start
+	}
+
+	// Assume chronological order, so last message is the latest
+	// Checking the last element in the slice
+	msgs := *messages
+	lastMsg := msgs[len(msgs)-1]
+	
+	// Determine state based on role of last message
+	if lastMsg.Info.Role == "user" {
+		return StateWorking
+	}
+	
+	return StateIdle
 }
 
 // isKnownAgentType returns true for AI agent types that have predictable

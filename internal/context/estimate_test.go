@@ -333,7 +333,7 @@ func TestEstimatorWithSampleData(t *testing.T) {
 }
 
 // TestEdgeCases tests edge cases in estimation.
-func TestEdgeCases(t *testing.T) {
+func TestEstimateEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("empty scrollback", func(t *testing.T) {
