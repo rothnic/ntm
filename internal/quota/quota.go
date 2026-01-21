@@ -12,9 +12,10 @@ import (
 type Provider string
 
 const (
-	ProviderClaude Provider = "claude"
-	ProviderCodex  Provider = "codex"
-	ProviderGemini Provider = "gemini"
+	ProviderClaude   Provider = "claude"
+	ProviderCodex    Provider = "codex"
+	ProviderGemini   Provider = "gemini"
+	ProviderOpenCode Provider = "opencode"
 )
 
 // QuotaInfo represents current quota state for an account
