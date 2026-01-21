@@ -13,7 +13,7 @@ Tracked work items for completing OpenCode integration. See [../agent_feature_ma
 
 ### Compaction Integration
 **File:** `internal/context/compact.go`
-- [ ] Add OpenCode case to `GetAgentCapabilities()` returning:
+- [x] Add OpenCode case to `GetAgentCapabilities()` returning:
   - `SupportsBuiltinCompact: true`
   - `BuiltinCompactCommand: "/compact"`
   - `SupportsHistoryClear: true` (via session reset)
@@ -40,16 +40,16 @@ Example models (prefer antigravity-routed):
 
 ### Session Management
 **Files:** `internal/session/capture.go`, `internal/session/restore.go`
-- [ ] Add OpenCode case to session capture (use SDK `Session.Messages()`)
-- [ ] Add OpenCode case to session restore (use SDK `Session.Prompt()`)
+- [x] Add OpenCode case to session capture (use SDK `Session.Messages()`)
+- [x] Add OpenCode case to session restore (use SDK `Session.Prompt()`)
 
 ### Context Rotation
 **File:** `internal/rotation/provider.go`
-- [ ] Add OpenCode rotation provider using `Session.New()` SDK call
+- [x] Add OpenCode rotation provider using `Session.New()` SDK call
 
 ### Persona Assignment
 **File:** `internal/persona/persona.go`
-- [ ] Add `"opencode"` case to agent type normalization (lines 61, 86)
+- [x] Add `"opencode"` case to agent type normalization (lines 61, 86)
 
 ### Handoff Integration
 **Files:** `internal/handoff/generator.go`, `internal/handoff/constants.go`
@@ -71,15 +71,15 @@ Example models (prefer antigravity-routed):
 
 ### TUI Icons
 **File:** `internal/tui/icons/icons.go`
-- [ ] Add OpenCode icon mappings:
+- [x] Add OpenCode icon mappings:
   - NerdFont: `󰘦` (code icon)
   - Unicode: `◇`
   - ASCII: `[OC]`
 
 ### Command Palette
 **File:** `internal/palette/model.go`
-- [ ] Add `TargetOpenCode` constant
-- [ ] Add OpenCode cases at lines 364, 738, 884
+- [x] Add `TargetOpenCode` constant
+- [x] Add OpenCode cases at lines 364, 738, 884
 
 ---
 
