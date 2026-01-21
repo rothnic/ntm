@@ -42,6 +42,7 @@ const (
 	TargetClaude
 	TargetCodex
 	TargetGemini
+	TargetOpenCode
 )
 
 // ReloadMsg is emitted when palette commands are reloaded from config changes.
@@ -54,12 +55,14 @@ type paneCounts struct {
 	claude      int
 	codex       int
 	gemini      int
+	opencode    int
 
 	// Representative pane titles per target (best-effort, used for UI clarity).
-	allSamples    []string
-	claudeSamples []string
-	codexSamples  []string
-	geminiSamples []string
+	allSamples      []string
+	claudeSamples   []string
+	codexSamples    []string
+	geminiSamples   []string
+	opencodeSamples []string
 }
 
 type paneCountsMsg struct {
@@ -370,6 +373,9 @@ func (m Model) fetchPaneCounts() tea.Cmd {
 			case tmux.AgentGemini:
 				counts.gemini++
 				addSample(&counts.geminiSamples, title, maxTypeSamples)
+			case tmux.AgentOpenCode:
+				counts.opencode++
+				addSample(&counts.opencodeSamples, title, maxTypeSamples)
 			}
 		}
 
@@ -741,6 +747,8 @@ func (m *Model) send() (tea.Model, tea.Cmd) {
 			shouldSend = p.Type == tmux.AgentCodex
 		case TargetGemini:
 			shouldSend = p.Type == tmux.AgentGemini
+		case TargetOpenCode:
+			shouldSend = p.Type == tmux.AgentOpenCode
 		}
 
 		if shouldSend {

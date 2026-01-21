@@ -19,6 +19,8 @@ func GetProvider(agentType string) Provider {
 		return &CodexProvider{}
 	case "gmi", "gemini":
 		return &GeminiProvider{}
+	case "oc", "opencode":
+		return &OpenCodeProvider{}
 	default:
 		return nil
 	}
@@ -60,3 +62,14 @@ func (p *GeminiProvider) AuthSuccessPatterns() []string {
 }
 func (p *GeminiProvider) ContinuationPrompt() string { return "continue" }
 func (p *GeminiProvider) SupportsReauth() bool       { return false } // Assuming restart for safety initially
+
+// OpenCodeProvider implementation - uses SDK for session management
+type OpenCodeProvider struct{}
+
+func (p *OpenCodeProvider) Name() string                  { return "OpenCode" }
+func (p *OpenCodeProvider) LoginCommand() string          { return "" }    // SDK handles auth
+func (p *OpenCodeProvider) ExitCommand() string           { return "/bye" } // OpenCode exit
+func (p *OpenCodeProvider) AuthSuccessPatterns() []string { return nil }   // SDK handles auth
+func (p *OpenCodeProvider) ContinuationPrompt() string    { return "continue" }
+func (p *OpenCodeProvider) SupportsReauth() bool          { return false } // Use SDK Session.New() instead
+
