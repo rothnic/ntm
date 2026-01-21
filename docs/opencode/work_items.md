@@ -53,7 +53,7 @@ Example models (prefer antigravity-routed):
 
 ### Handoff Integration
 **Files:** `internal/handoff/generator.go`, `internal/handoff/constants.go`
-- [ ] Add OpenCode-specific output patterns to `accomplishmentPatterns`
+- [x] Add OpenCode-specific output patterns to `accomplishmentPatterns`
 - [ ] Add OpenCode-specific task patterns
 - [ ] Test `ntm resume` with OpenCode sessions
 - [ ] Verify handoff generation from OpenCode transcript/output
@@ -66,8 +66,8 @@ Example models (prefer antigravity-routed):
 
 ### Quota/Token Tracking
 **Files:** `internal/quota/`
-- [ ] Create `internal/quota/opencode.go` (delegate to underlying provider)
-- [ ] Add OpenCode case to `internal/quota/fetcher.go`
+- [x] Create `internal/quota/opencode.go` (delegate to underlying provider)
+- [x] Add OpenCode case to `internal/quota/fetcher.go`
 
 ### TUI Icons
 **File:** `internal/tui/icons/icons.go`
