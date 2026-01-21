@@ -174,6 +174,43 @@ func TestAnalyzeOutputGeminiPatterns(t *testing.T) {
 	}
 }
 
+// Test patterns for OpenCode agent output
+func TestAnalyzeOutputOpenCodePatterns(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantGoal string
+	}{
+		{
+			name:     "OpenCode Changes applied pattern",
+			input:    "Changes applied: updated the authentication module",
+			wantGoal: "updated the authentication module",
+		},
+		{
+			name:     "OpenCode Applied changes to pattern",
+			input:    "Applied changes to internal/auth/handler.go",
+			wantGoal: "internal/auth/handler.go",
+		},
+		{
+			name:     "OpenCode Wrote pattern",
+			input:    "Wrote internal/api/server.go",
+			wantGoal: "internal/api/server.go",
+		},
+	}
+
+	g := NewGenerator("/tmp")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := g.analyzeOutput([]byte(tt.input))
+
+			if result.accomplishment != tt.wantGoal {
+				t.Errorf("accomplishment = %q, want %q", result.accomplishment, tt.wantGoal)
+			}
+		})
+	}
+}
+
 func TestAnalyzeOutputDecisions(t *testing.T) {
 	tests := []struct {
 		name          string
