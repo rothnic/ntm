@@ -448,3 +448,54 @@ func (m *Manager) countConnections(port int) int {
 
 	return 0
 }
+
+// ProvisionSessions ensures the server is running and creates unique sessions for the specified number of agents.
+// It returns the server info and a list of session IDs in order.
+func (m *Manager) ProvisionSessions(ctx context.Context, projectPath, ntmSessionName string, count int) (*ServerInfo, []string, error) {
+	// 1. Ensure Server is Running
+	info, err := m.Start(projectPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("start server: %w", err)
+	}
+
+	// 2. Get Client
+	client, err := m.Client(projectPath)
+	if err != nil {
+		return info, nil, fmt.Errorf("get client: %w", err)
+	}
+
+	// 3. Create Sessions
+	var sessionIDs []string
+	for i := 1; i <= count; i++ {
+		title := fmt.Sprintf("NTM Session [%s] Agent %d", ntmSessionName, i)
+		session, err := client.Session.New(ctx, opencode.SessionNewParams{
+			Title:     opencode.String(title),
+			Directory: opencode.String(projectPath),
+		})
+		if err != nil {
+			return info, sessionIDs, fmt.Errorf("create session %d: %w", i, err)
+		}
+		sessionIDs = append(sessionIDs, session.ID)
+	}
+
+	return info, sessionIDs, nil
+}
+
+
+// SendPrompt sends a prompt to the specified session via SDK
+func (m *Manager) SendPrompt(ctx context.Context, projectPath, sessionID, prompt string) error {
+	client, err := m.Client(projectPath)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Session.Prompt(ctx, sessionID, opencode.SessionPromptParams{
+		Parts: opencode.F([]opencode.SessionPromptParamsPartUnion{
+			opencode.TextPartInputParam{
+				Type: opencode.F(opencode.TextPartInputTypeText),
+				Text: opencode.F(prompt),
+			},
+		}),
+	})
+	return err
+}

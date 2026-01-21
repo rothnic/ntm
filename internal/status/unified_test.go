@@ -891,7 +891,7 @@ func TestDetermineState(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			state, errType := d.determineState(tt.output, tt.agentType, tt.lastActivity)
+			state, errType := d.determineState(tt.output, tt.agentType, tt.lastActivity, "%test")
 			if state != tt.wantState {
 				t.Errorf("determineState() state = %v, want %v", state, tt.wantState)
 			}

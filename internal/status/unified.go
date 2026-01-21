@@ -7,22 +7,25 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/opencode"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	opencode_sdk "github.com/sst/opencode-sdk-go"
 )
 
 // UnifiedDetector implements the Detector interface by combining
 // activity, prompt, and error detection into a unified status check.
+// UnifiedDetector implements the Detector interface by combining
+// activity, prompt, and error detection into a unified status check.
 type UnifiedDetector struct {
-	config    DetectorConfig
-	ocManager *opencode.Manager
+	config   DetectorConfig
+	runtimes []RuntimeDetector
 }
 
 // NewDetector creates a new UnifiedDetector with default configuration
 func NewDetector() *UnifiedDetector {
-	mgr, _ := opencode.NewManager() // Best effort, ignore error
+	mgr, _ := opencode.NewManager()
 	return &UnifiedDetector{
-		config:    DefaultConfig(),
-		ocManager: mgr,
+		config: DefaultConfig(),
+		runtimes: []RuntimeDetector{
+			NewOpenCodeDetector(mgr),
+		},
 	}
 }
 
@@ -30,8 +33,10 @@ func NewDetector() *UnifiedDetector {
 func NewDetectorWithConfig(config DetectorConfig) *UnifiedDetector {
 	mgr, _ := opencode.NewManager()
 	return &UnifiedDetector{
-		config:    config,
-		ocManager: mgr,
+		config: config,
+		runtimes: []RuntimeDetector{
+			NewOpenCodeDetector(mgr),
+		},
 	}
 }
 
@@ -53,7 +58,7 @@ func (d *UnifiedDetector) Analyze(paneID, paneName, agentType string, output str
 		LastOutput: truncateOutput(output, d.config.OutputPreviewLength),
 	}
 
-	state, errType := d.determineState(output, agentType, lastActivity)
+	state, errType := d.determineState(output, agentType, lastActivity, paneID)
 	status.State = state
 	status.ErrorType = errType
 
@@ -61,7 +66,17 @@ func (d *UnifiedDetector) Analyze(paneID, paneName, agentType string, output str
 }
 
 // determineState calculates state based on output and activity
-func (d *UnifiedDetector) determineState(output, agentType string, lastActivity time.Time) (AgentState, ErrorType) {
+func (d *UnifiedDetector) determineState(output, agentType string, lastActivity time.Time, paneID string) (AgentState, ErrorType) {
+	// 0. Runtime Detectors (High Fidelity)
+	for _, runtime := range d.runtimes {
+		if runtime.CanHandle(agentType) {
+			state, err := runtime.Detect(context.Background(), paneID, output)
+			if err == nil && state != StateUnknown {
+				return state, ErrorNone
+			}
+		}
+	}
+
 	// Detection priority:
 	// 1. Check for errors first (most important)
 	// 2. Check for idle (at prompt)
@@ -113,64 +128,11 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 	return StateUnknown, ErrorNone
 }
 
-// resolveOpenCodeStatus queries the OpenCode SDK for the precise status of a session.
-func (d *UnifiedDetector) resolveOpenCodeStatus(paneID, sessionID string) AgentState {
-	if d.ocManager == nil {
-		return StateUnknown
-	}
-
-	// Calculate project path (needed to get client)
-	// In NTM, tmux session usually rooted at project path.
-	// We can try to get it from tmux, or pass it in.
-	// For now, let's assume valid Client retrieval requires path.
-	// But Manager.Client needs path to find port.
-	// The sessionID alone isn't enough unless we scan all servers.
-	// However, we know OpenCode server runs per-project.
-	// Wait! We stored session_id in the pane. We ALSO need to know WHICH server.
-	// We can store @opencode_project_path on the pane too?
-	// OR we can assume current directory of pane is project root?
-	
-	// Better approach: Since we don't have project path handy here easily without more tmux calls,
-	// let's peek at the pane's current path.
-	panePath, err := tmux.GetPanePath(paneID)
-	if err != nil {
-		return StateUnknown
-	}
-	
-	client, err := d.ocManager.Client(panePath)
-	if err != nil {
-		// Maybe server not running?
-		return StateUnknown 
-	}
-	
-	// Query session messages to determine state
-	messages, err := client.Session.Messages(context.Background(), sessionID, opencode_sdk.SessionMessagesParams{})
-	if err != nil {
-		return StateUnknown
-	}
-
-	if messages == nil || len(*messages) == 0 {
-		return StateIdle // No messages = Ready for start
-	}
-
-	// Assume chronological order, so last message is the latest
-	// Checking the last element in the slice
-	msgs := *messages
-	lastMsg := msgs[len(msgs)-1]
-	
-	// Determine state based on role of last message
-	if lastMsg.Info.Role == "user" {
-		return StateWorking
-	}
-	
-	return StateIdle
-}
-
 // isKnownAgentType returns true for AI agent types that have predictable
 // working/idle behavior (cc=Claude Code, cod=Codex, gmi=Gemini).
 func isKnownAgentType(agentType string) bool {
 	switch agentType {
-	case "cc", "cod", "gmi", "cursor", "windsurf", "aider":
+	case "cc", "cod", "gmi", "cursor", "windsurf", "aider", "oc", "opencode":
 		return true
 	default:
 		return false
@@ -280,7 +242,7 @@ func (d *UnifiedDetector) Detect(paneID string) (AgentStatus, error) {
 	}
 
 	// Use shared logic
-	state, errType := d.determineState(output, status.AgentType, status.LastActive)
+	state, errType := d.determineState(output, status.AgentType, status.LastActive, paneID)
 	status.State = state
 	status.ErrorType = errType
 
@@ -333,7 +295,7 @@ func (d *UnifiedDetector) DetectAllContext(ctx context.Context, session string) 
 		status.LastOutput = truncateOutput(output, d.config.OutputPreviewLength)
 
 		// Use shared logic
-		state, errType := d.determineState(output, status.AgentType, status.LastActive)
+		state, errType := d.determineState(output, status.AgentType, status.LastActive, pane.Pane.ID)
 		status.State = state
 		status.ErrorType = errType
 

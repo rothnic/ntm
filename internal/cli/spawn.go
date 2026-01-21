@@ -856,6 +856,9 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	var setupWg sync.WaitGroup
 	var maxStaggerDelay time.Duration
 
+	// Mutex to serialize OpenCode prompt injection to avoid server contention
+	var opencodePromptMu sync.Mutex
+
 	// Initialize rate limit tracker for smart stagger mode (bd-2wih)
 	var rateLimitTracker *ratelimit.RateLimitTracker
 	if opts.StaggerMode == "smart" {
@@ -908,9 +911,11 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		}
 	}
 
-	// Start OpenCode server if needed
+	// Start OpenCode server and provision sessions if needed
 	var opencodeServerURL string
-	var opencodeSessionID string
+	// Map to store session ID for each OpenCode agent index
+	agentOpenCodeSessions := make(map[int]string)
+
 	if opts.OcCount > 0 {
 		mgr, err := opencode.NewManager()
 		if err != nil {
@@ -919,56 +924,51 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			}
 		} else {
 			if !IsJSONOutput() {
-				fmt.Printf("Starting OpenCode server for %s...\n", dir)
+				fmt.Printf("Provisioning OpenCode environment for %s...\n", dir)
 			}
-			info, err := mgr.Start(dir)
+			
+			// Use self-contained manager to provision sessions for all agents
+			// Use context for potentially slow operations
+			provCtx, cancelProv := context.WithTimeout(context.Background(), 30*time.Second) // generous timeout for starting server + many API calls
+			info, sessionIDs, err := mgr.ProvisionSessions(provCtx, dir, opts.Session, opts.OcCount)
+			cancelProv()
+
 			if err != nil {
-				// Log warning but don't fail hard - agents might still work if server is externally managed?
-				// But user explicitly asked for this integration.
 				if !IsJSONOutput() {
-					output.PrintWarningf("Failed to start OpenCode server: %v", err)
+					output.PrintWarningf("Failed to provision OpenCode sessions: %v", err)
 				}
-				return outputError(fmt.Errorf("starting opencode server: %w", err))
-			} else {
-				opencodeServerURL = fmt.Sprintf("http://127.0.0.1:%d", info.Port)
-				if !IsJSONOutput() {
-					fmt.Printf("✓ OpenCode server running at %s\n", opencodeServerURL)
-				}
+				return outputError(fmt.Errorf("provisioning opencode environment: %w", err))
+			}
 
-				// Setup cleanup hook on session close
-				// We want to kill the server when the tmux session is destroyed
-				// Command: ntm opencode stop <abs-path-to-project> --force
-				// Use absolute path to ntm itself to be safe
-				if exe, err := os.Executable(); err == nil {
-					// Use double quotes for run-shell command component
-					cleanupCmd := fmt.Sprintf("%s opencode stop %s --force", config.ShellQuote(exe), config.ShellQuote(dir))
+			opencodeServerURL = fmt.Sprintf("http://127.0.0.1:%d", info.Port)
+			
+			if !IsJSONOutput() {
+				fmt.Printf("✓ OpenCode server running at %s\n", opencodeServerURL)
+				fmt.Printf("✓ Provisioned %d unique sessions\n", len(sessionIDs))
+			}
 
-					// Set the hook
-					if err := tmux.DefaultClient.RunSilent("set-hook", "-t", opts.Session, "session-destroyed", fmt.Sprintf("run-shell '%s'", cleanupCmd)); err != nil {
-						if !IsJSONOutput() {
-							output.PrintWarningf("Failed to set cleanup hook: %v", err)
-						}
-					} else {
-						if !IsJSONOutput() {
-							fmt.Println("✓ Configured auto-cleanup on session exit")
-						}
+			// Map session IDs to agent indices
+			// We need to find the OpenCode agents in order to map them
+			ocIdx := 0
+			for _, a := range opts.Agents {
+				if a.Type == AgentTypeOpenCode {
+					if ocIdx < len(sessionIDs) {
+						agentOpenCodeSessions[a.Index] = sessionIDs[ocIdx]
+						ocIdx++
 					}
 				}
+			}
 
-				// Create persistent session for this spawn
-				// This allows us to deterministically attach to the correct session
-				// and monitor it across restarts or multiple tmux panes.
-				sessionTitle := fmt.Sprintf("NTM Session [%s]", opts.Session)
-				sid, err := mgr.CreateSession(dir, sessionTitle)
-				if err != nil {
-					// Fallback to legacy behavior (no specific session ID, just attach to latest/new)
+			// Setup cleanup hook
+			if exe, err := os.Executable(); err == nil {
+				cleanupCmd := fmt.Sprintf("%s opencode stop %s --force", config.ShellQuote(exe), config.ShellQuote(dir))
+				if err := tmux.DefaultClient.RunSilent("set-hook", "-t", opts.Session, "session-destroyed", fmt.Sprintf("run-shell '%s'", cleanupCmd)); err != nil {
 					if !IsJSONOutput() {
-						output.PrintWarningf("Failed to create named persistent session: %v", err)
+						output.PrintWarningf("Failed to set cleanup hook: %v", err)
 					}
 				} else {
-					opencodeSessionID = sid
 					if !IsJSONOutput() {
-						fmt.Printf("✓ Created persistent session: %s\n", sid)
+						fmt.Println("✓ Configured auto-cleanup on session exit")
 					}
 				}
 			}
@@ -1085,6 +1085,12 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		}
 
 		// Generate command using template
+		// Lookup OpenCode session ID if applicable
+		var specificOcSessionID string
+		if sid, ok := agentOpenCodeSessions[agent.Index]; ok {
+			specificOcSessionID = sid
+		}
+
 		agentCmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
 			Model:            resolvedModel,
 			ModelAlias:       agent.Model,
@@ -1095,7 +1101,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			SystemPromptFile: systemPromptFile,
 			PersonaName:      personaName,
 			OpenCodeServerURL: opencodeServerURL,
-			OpenCodeSessionID: opencodeSessionID,
+			OpenCodeSessionID: specificOcSessionID,
 		})
 		if err != nil {
 			return outputError(fmt.Errorf("generating command for %s agent: %w", agent.Type, err))
@@ -1142,16 +1148,24 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			return outputError(fmt.Errorf("building %s agent command: %w", agent.Type, err))
 		}
 
+
+		// Wait for pane to be ready before sending command
+		// Using a short sleep is a simple heuristic to ensure the shell is ready
+		// to receive input (e.g. after sourcing .zshrc).
+		time.Sleep(3000 * time.Millisecond)
+
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
 			return outputError(fmt.Errorf("launching %s agent: %w", agent.Type, err))
 		}
 
 		// If OpenCode agent, store session ID in pane options for UnifiedDetector
-		if agent.Type == AgentTypeOpenCode && opencodeSessionID != "" {
-			// Using @-prefixed user option
-			if err := tmux.DefaultClient.RunSilent("set-option", "-p", "-t", pane.ID, "@opencode_session_id", opencodeSessionID); err != nil {
-				if !IsJSONOutput() {
-					fmt.Printf("⚠ Warning: could not set session ID on pane: %v\n", err)
+		if agent.Type == AgentTypeOpenCode {
+			if sid, ok := agentOpenCodeSessions[agent.Index]; ok && sid != "" {
+				// Using @-prefixed user option
+				if err := tmux.DefaultClient.RunSilent("set-option", "-p", "-t", pane.ID, "@opencode_session_id", sid); err != nil {
+					if !IsJSONOutput() {
+						fmt.Printf("⚠ Warning: could not set session ID on pane: %v\n", err)
+					}
 				}
 			}
 		}
@@ -1252,6 +1266,31 @@ func spawnSessionLogic(opts SpawnOptions) error {
 							break
 						}
 						time.Sleep(500 * time.Millisecond)
+					}
+					// Extra wait for TUI input loop to be ready
+					time.Sleep(3000 * time.Millisecond)
+
+					// Look up specific session ID for this agent
+					if sid, ok := agentOpenCodeSessions[idx]; ok && sid != "" {
+						mgr, err := opencode.NewManager()
+						if err == nil {
+							// Serialize prompt injection to avoid server contention
+							opencodePromptMu.Lock()
+							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+							err := mgr.SendPrompt(ctx, dir, sid, finalPrompt)
+							cancel()
+							opencodePromptMu.Unlock()
+							
+							if err == nil {
+								if !IsJSONOutput() {
+									fmt.Printf("✓ Sent prompt via SDK to OpenCode session %s (Agent %d)\n", sid, idx)
+								}
+								return
+							}
+							
+							// Always log failure to stderr so it's visible even in JSON mode
+							fmt.Fprintf(os.Stderr, "⚠ SDK prompt injection failed for agent %d: %v. Falling back to keys.\n", idx, err)
+						}
 					}
 
 				} else if isStaggered {

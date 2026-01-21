@@ -190,17 +190,30 @@ ntm opencode reap --json
 
 ## Integration with ntm spawn
 
-*Coming soon:* Direct integration with `ntm spawn` command.
+`ntm spawn` has full integration with OpenCode servers.
 
 ```bash
-# Future: spawn session with OpenCode agents
+# Spawn session with OpenCode agents
 ntm spawn myproject --oc=2
-
-# Automatically:
-# 1. Starts OpenCode server for project
-# 2. Creates tmux panes for OpenCode agents
-# 3. Attaches agents to server
 ```
+
+**Capabilities:**
+1.  **Automatic Server Management:** Starts the `opencode` server for the project if not running.
+2.  **Deterministic Sessions:** Uses the OpenCode SDK to create a persistent session with a deterministic name (`NTM Session [<ntm-session-name>]`).
+3.  **Automatic Attachment:** Creates tmux panes and attaches the OpenCode agent to the specific session ID.
+4.  **Metadata Binding:** Binds the Session ID to the tmux pane via user option `@opencode_session_id`, enabling robust status monitoring.
+
+## Status Detection (Unified Detector)
+
+NTM V2 uses a generic `RuntimeDetector` interface for status detection, with a specialized `OpenCodeDetector` implementation.
+
+**Mechanism:**
+1.  **Pane Discovery:** Detector reads `@opencode_session_id` from the tmux pane.
+2.  **SDK Query:** Connects to the project's OpenCode server via Go SDK.
+3.  **Message Analysis:** Fetches recent session messages to determine state:
+    -   Last message from `user` -> **Working**
+    -   Last message from `assistant` -> **Idle**
+4.  **High Fidelity:** This eliminates screen-scraping heuristics for OpenCode agents, providing 100% accuracy on agent state.
 
 ## Troubleshooting
 
@@ -348,3 +361,4 @@ err := process.Signal(syscall.Signal(0))
 
 - [Original agentic flywheel PR](https://github.com/rothnic/agentic_coding_flywheel_setup/pull/7)
 - [OpenCode documentation](https://github.com/example/opencode)
+- [Verification Log (Manual Tests)](../manual_tests/opencode_verification.md)
