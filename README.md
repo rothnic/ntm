@@ -602,6 +602,8 @@ ntm spawn myproject --profiles=architect,implementer,tester
 ntm spawn myproject --profile-set=backend-team
 ```
 
+> **Adding New Agent Runtimes:** See [docs/adding_agent_runtime.md](docs/adding_agent_runtime.md) for a guide on integrating new AI agents (e.g., OpenCode, custom runtimes).
+
 ### AI Agent Integration (Robot Mode)
 
 NTM provides machine-readable output for integration with AI coding agents and automation pipelines. All robot commands output JSON by default and follow consistent exit codes (0=success, 1=error, 2=unavailable).

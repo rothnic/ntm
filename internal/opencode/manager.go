@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,22 @@ import (
 
 	"github.com/sst/opencode-sdk-go"
 	"github.com/sst/opencode-sdk-go/option"
+)
+
+// Server lifecycle constants
+const (
+	// Port allocation
+	PortRangeStart = 28000
+	PortRangeSize  = 1000
+
+	// Server startup
+	ServerStartTimeout      = 5 * time.Second
+	ServerStartPollInterval = 100 * time.Millisecond
+	HealthCheckTimeout      = 500 * time.Millisecond
+
+	// Graceful shutdown
+	ShutdownGracePeriod   = 5 * time.Second
+	ShutdownPollInterval  = 500 * time.Millisecond
 )
 
 // Manager handles lifecycle of per-project opencode servers
@@ -70,7 +87,7 @@ func (m *Manager) ProjectStateDir(projectID string) string {
 
 // PortForProject calculates a stable port number for a project
 func (m *Manager) PortForProject(projectPath string) int {
-	// Use MD5 hash to generate port in range 28000-29000
+	// Use MD5 hash to generate port in range PortRangeStart to PortRangeStart+PortRangeSize
 	absPath, err := filepath.Abs(projectPath)
 	if err != nil {
 		absPath = projectPath
@@ -79,7 +96,7 @@ func (m *Manager) PortForProject(projectPath string) int {
 	hash := md5.Sum([]byte(absPath))
 	// Use first 4 bytes of hash to generate port offset
 	offset := int(hash[0])<<8 | int(hash[1])
-	port := 28000 + (offset % 1000)
+	port := PortRangeStart + (offset % PortRangeSize)
 
 	return port
 }
@@ -150,14 +167,15 @@ func (m *Manager) Start(projectPath string) (*ServerInfo, error) {
 	// Release the process so it runs independently
 	_ = cmd.Process.Release()
 
-	// Wait up to 5 seconds for server to start
+	// Wait for server to start (using constants)
 	serverStarted := false
-	for i := 0; i < 50; i++ {
+	maxAttempts := int(ServerStartTimeout / ServerStartPollInterval)
+	for i := 0; i < maxAttempts; i++ {
 		if m.isServerHealthy(port) {
 			serverStarted = true
 			break
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(ServerStartPollInterval)
 	}
 
 	// Verify server is responding
@@ -202,9 +220,10 @@ func (m *Manager) Stop(projectPath string, force bool) error {
 		return fmt.Errorf("send SIGTERM: %w", err)
 	}
 
-	// Wait up to 5 seconds for graceful shutdown
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
+	// Wait for graceful shutdown (using constants)
+	maxAttempts := int(ShutdownGracePeriod / ShutdownPollInterval)
+	for i := 0; i < maxAttempts; i++ {
+		time.Sleep(ShutdownPollInterval)
 		if !m.isProcessRunning(info.PID) {
 			break
 		}
@@ -215,7 +234,7 @@ func (m *Manager) Stop(projectPath string, force bool) error {
 		if err := process.Signal(syscall.SIGKILL); err != nil {
 			return fmt.Errorf("send SIGKILL: %w", err)
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(ShutdownPollInterval)
 	}
 
 	// Clean up state files
@@ -409,12 +428,15 @@ func (m *Manager) isProcessRunning(pid int) bool {
 	return err == nil
 }
 
-// isServerHealthy checks if the server is responding on the given port
+// isServerHealthy checks if the server is responding on the given port.
+// Uses native Go net.DialTimeout for cross-platform compatibility.
 func (m *Manager) isServerHealthy(port int) bool {
-	// Try a simple TCP connection
-	cmd := exec.Command("nc", "-z", "127.0.0.1", fmt.Sprintf("%d", port))
-	err := cmd.Run()
-	return err == nil
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), HealthCheckTimeout)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 // countConnections counts active connections to the server port
@@ -480,7 +502,6 @@ func (m *Manager) ProvisionSessions(ctx context.Context, projectPath, ntmSession
 
 	return info, sessionIDs, nil
 }
-
 
 // SendPrompt sends a prompt to the specified session via SDK
 func (m *Manager) SendPrompt(ctx context.Context, projectPath, sessionID, prompt string) error {

@@ -13,6 +13,42 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/opencode"
 )
 
+// resolveProjectPath resolves the project path from command args.
+// Returns absolute path to the project directory.
+func resolveProjectPath(args []string) (string, error) {
+	projectPath := "."
+	if len(args) > 0 {
+		projectPath = args[0]
+	}
+	return filepath.Abs(projectPath)
+}
+
+// getProjectManager creates a manager and returns it with the resolved project path.
+// Use for commands that need both the path and a manager.
+func getProjectManager(args []string) (string, *opencode.Manager, error) {
+	absPath, err := resolveProjectPath(args)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve path: %w", err)
+	}
+
+	mgr, err := opencode.NewManager()
+	if err != nil {
+		return "", nil, fmt.Errorf("create manager: %w", err)
+	}
+
+	return absPath, mgr, nil
+}
+
+// newManager creates a new opencode Manager.
+// Use for commands that don't need a specific project path (e.g., list, reap).
+func newManager() (*opencode.Manager, error) {
+	mgr, err := opencode.NewManager()
+	if err != nil {
+		return nil, fmt.Errorf("create manager: %w", err)
+	}
+	return mgr, nil
+}
+
 func newOpencodeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "opencode",
@@ -55,26 +91,14 @@ Examples:
 }
 
 func runOpencodeStart(cmd *cobra.Command, args []string) error {
-	projectPath := "."
-	if len(args) > 0 {
-		projectPath = args[0]
-	}
-
-	// Get absolute path
-	absPath, err := filepath.Abs(projectPath)
+	absPath, mgr, err := getProjectManager(args)
 	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
+		return err
 	}
 
 	// Verify directory exists
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		return fmt.Errorf("project directory does not exist: %s", absPath)
-	}
-
-	// Create manager
-	mgr, err := opencode.NewManager()
-	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
 	}
 
 	// Start server
@@ -138,21 +162,9 @@ Examples:
 }
 
 func runOpencodeStop(cmd *cobra.Command, args []string, force bool) error {
-	projectPath := "."
-	if len(args) > 0 {
-		projectPath = args[0]
-	}
-
-	// Get absolute path
-	absPath, err := filepath.Abs(projectPath)
+	absPath, mgr, err := getProjectManager(args)
 	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
-	}
-
-	// Create manager
-	mgr, err := opencode.NewManager()
-	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
+		return err
 	}
 
 	// Stop server
@@ -196,21 +208,9 @@ Examples:
 }
 
 func runOpencodeStatus(cmd *cobra.Command, args []string) error {
-	projectPath := "."
-	if len(args) > 0 {
-		projectPath = args[0]
-	}
-
-	// Get absolute path
-	absPath, err := filepath.Abs(projectPath)
+	absPath, mgr, err := getProjectManager(args)
 	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
-	}
-
-	// Create manager
-	mgr, err := opencode.NewManager()
-	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
+		return err
 	}
 
 	// Get status
@@ -267,10 +267,9 @@ Examples:
 }
 
 func runOpencodeList(cmd *cobra.Command, args []string) error {
-	// Create manager
-	mgr, err := opencode.NewManager()
+	mgr, err := newManager()
 	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
+		return err
 	}
 
 	// Get list
@@ -367,21 +366,9 @@ Examples:
 }
 
 func runOpencodeLogs(cmd *cobra.Command, args []string, follow bool, lines int) error {
-	projectPath := "."
-	if len(args) > 0 {
-		projectPath = args[0]
-	}
-
-	// Get absolute path
-	absPath, err := filepath.Abs(projectPath)
+	absPath, mgr, err := getProjectManager(args)
 	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
-	}
-
-	// Create manager
-	mgr, err := opencode.NewManager()
-	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
+		return err
 	}
 
 	// Get status to find log file
@@ -431,21 +418,9 @@ Examples:
 }
 
 func runOpencodeURL(cmd *cobra.Command, args []string) error {
-	projectPath := "."
-	if len(args) > 0 {
-		projectPath = args[0]
-	}
-
-	// Get absolute path
-	absPath, err := filepath.Abs(projectPath)
+	absPath, mgr, err := getProjectManager(args)
 	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
-	}
-
-	// Create manager
-	mgr, err := opencode.NewManager()
-	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
+		return err
 	}
 
 	// Get URL
@@ -494,10 +469,9 @@ Examples:
 }
 
 func runOpencodeReap(cmd *cobra.Command, args []string) error {
-	// Create manager
-	mgr, err := opencode.NewManager()
+	mgr, err := newManager()
 	if err != nil {
-		return fmt.Errorf("create manager: %w", err)
+		return err
 	}
 
 	// Reap idle servers

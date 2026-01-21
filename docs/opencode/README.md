@@ -330,7 +330,11 @@ Process is detached using `Setsid: true` in `SysProcAttr` (Unix).
 
 ### Health Checking
 
-Server health is verified using `nc -z 127.0.0.1 <port>` to test TCP connectivity.
+Server health is verified using native Go TCP connection (no external commands):
+
+```go
+conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), HealthCheckTimeout)
+```
 
 ### Connection Counting
 
@@ -350,15 +354,192 @@ err := process.Signal(syscall.Signal(0))
 // err == nil means process exists
 ```
 
+## Testing
+
+### E2E Integration Test
+
+**File:** `tests/e2e/opencode_spawn_test.go`
+
+The integration test verifies the complete OpenCode spawn workflow, from server management through prompt delivery. This test validates the same workflow a human would execute manually.
+
+#### What It Tests
+
+| Step | Description | Verification Method |
+|------|-------------|---------------------|
+| 1. Build | Compiles NTM binary | Build succeeds without error |
+| 2. Environment | Creates isolated test project directory | Directory exists |
+| 3. Spawn | Runs `ntm spawn <session> --oc=2 --prompt="Hello E2E Test"` | Command exits successfully |
+| 4. Tmux Session | Verifies session was created with correct pane layout | At least 3 panes (2 agents + 1 user) |
+| 5. Prompt Delivery | Each OpenCode agent receives and processes the prompt | Pane content contains prompt text OR agent shows activity |
+| 6. Cleanup | Stops OpenCode server and kills tmux session | Resources freed |
+
+#### Verification Logic
+
+The test uses **activity-based detection** rather than exact text matching, which is robust against:
+- TUI rendering differences
+- Timing variations in agent startup
+- Model response variations
+
+```go
+// Primary: Direct text match
+if strings.Contains(content, "Hello E2E Test") {
+    // Prompt text visible in pane
+}
+
+// Secondary: Activity detection (agent is processing)
+if strings.Contains(content, "Thinking") || 
+   strings.Contains(content, "Generating") {
+    // Agent is actively working on the prompt
+}
+```
+
+#### Terminal Geometry
+
+The test resizes the tmux window to 200x60 characters before verification:
+
+```go
+resizeCmd := exec.Command("tmux", "resize-window", "-t", sessionName, 
+    "-x", "200", "-y", "60")
+```
+
+**Why:** Default 80x24 terminal causes text wrapping in the TUI, making prompt text detection unreliable. Larger geometry ensures content is displayed cleanly.
+
+#### Running the Test
+
+```bash
+# From repository root
+go test -tags=integration -v ./tests/e2e/...
+
+# Run specific test
+go test -tags=integration -v -run TestOpencodeSpawnIntegration ./tests/e2e/
+
+# With timeout (default 10m, but test should complete in ~60s)
+go test -tags=integration -v -timeout 2m ./tests/e2e/...
+```
+
+#### Prerequisites
+
+- `tmux` installed and in PATH
+- `opencode` CLI installed and in PATH
+- No conflicting tmux sessions with `test-opencode-*` names
+
+#### Expected Output
+
+```
+=== RUN   TestOpencodeSpawnIntegration
+    opencode_spawn_test.go:26: Building NTM binary...
+    opencode_spawn_test.go:65: Spawning session test-opencode-1705791234 with 2 OpenCode agents...
+    opencode_spawn_test.go:90: Verifying tmux session...
+    opencode_spawn_test.go:110: Polling OpenCode panes for prompt reception or activity (strict check for 2 agents)...
+    opencode_spawn_test.go:137: ✓ Pane 1 received prompt (text match)
+    opencode_spawn_test.go:140: ✓ Pane 2 received prompt (agent active)
+    opencode_spawn_test.go:162: SUCCESS: All 2 OpenCode agents responded to the prompt.
+--- PASS: TestOpencodeSpawnIntegration (45.23s)
+```
+
+### CLI Smoke Test
+
+**File:** `tests/opencode_cli_test.sh`
+
+A lightweight shell script for basic CLI command verification:
+
+```bash
+./tests/opencode_cli_test.sh
+```
+
+Tests:
+- `ntm opencode --help` exits cleanly
+- `ntm opencode list` works with no servers
+- `ntm opencode status` handles missing server gracefully
+- `ntm opencode reap` works with nothing to reap
+
+### Manual Verification Checklist
+
+For features not covered by automated tests:
+
+1. **Server Lifecycle**
+   ```bash
+   ntm opencode start
+   ntm opencode status   # Verify running, has PID
+   ntm opencode stop
+   ntm opencode status   # Verify stopped
+   ```
+
+2. **Spawn with Prompt**
+   ```bash
+   ntm spawn test-manual --oc=1 --prompt="Summarize this project"
+   tmux attach -t test-manual
+   # Verify: OpenCode agent received and is processing prompt
+   ```
+
+3. **Connection Tracking**
+   ```bash
+   ntm opencode start
+   opencode attach $(ntm opencode url) &  # Start client
+   ntm opencode status  # Verify connections > 0
+   ntm opencode stop    # Should refuse (has connections)
+   ntm opencode stop --force  # Should succeed
+   ```
+
+4. **Reap Idle Servers**
+   ```bash
+   ntm opencode start /tmp/proj1
+   ntm opencode start /tmp/proj2
+   ntm opencode list    # 2 servers
+   ntm opencode reap    # Should stop both (0 connections)
+   ntm opencode list    # 0 servers
+   ```
+
+## Design Decisions
+
+### Why Central State Directory?
+
+We store state in `~/.opencode/servers/` instead of per-project `.opencode/`:
+
+- **No pollution**: Project directories stay clean
+- **Easy discovery**: `ntm opencode list` works globally
+- **Survives moves**: State persists even if project moves (useful for debugging)
+- **Separation**: Clear boundary between NTM state and OpenCode config
+
+### Why Hash-Based Ports?
+
+Using MD5 hash of project path for port assignment:
+
+- **Stable**: Same project always gets same port
+- **Collision-resistant**: Reduces port conflicts in multi-project scenarios
+- **Predictable**: Easy to debug (port is deterministic)
+
+> ⚠️ Port collisions are possible but rare. The 1000-port range handles typical workloads.
+
+### Why Connection Counting?
+
+Tracking active connections via `ss`/`lsof`:
+
+- **Safe stop**: Prevents killing servers with active clients
+- **Reap support**: Enables automatic cleanup of idle servers
+- **Visibility**: `ntm opencode status` shows connection count
+
+> ⚠️ Requires `ss` (Linux) or `lsof` (macOS). Returns 0 on unsupported platforms.
+
+### Why Separate Reap Command?
+
+Instead of automatic background cleanup:
+
+- **User control**: Cleanup happens when you want it
+- **Easy integration**: Works with cron, systemd timers, etc.
+- **Predictable**: No surprise terminations
+- **Testable**: Can verify behavior without side effects
+
 ## Requirements
 
 - `opencode` CLI must be installed and in PATH
-- `nc` (netcat) for health checks
-- `ss` for connection counting
+- `ss` or `lsof` for connection counting (optional, gracefully degrades)
 - `tail` for log viewing
 
 ## See Also
 
+- [Technical Guide](./technical_guide.md) - Critical findings and patterns
+- [Testing Requirements](./testing.md) - Functional requirements and test coverage
+- [Gap Analysis](./gap_analysis.md) - Remaining integration work
 - [Original agentic flywheel PR](https://github.com/rothnic/agentic_coding_flywheel_setup/pull/7)
-- [OpenCode documentation](https://github.com/example/opencode)
-- [Verification Log (Manual Tests)](../manual_tests/opencode_verification.md)
+

@@ -1,11 +1,11 @@
 ---
 name: ntm
-description: "Named Tmux Manager - Multi-agent orchestration for Claude Code, Codex, and Gemini in tiled tmux panes. Visual dashboards, command palette, context rotation, robot mode API, work assignment, safety system. Go CLI."
+description: "Named Tmux Manager - Multi-agent orchestration for Claude Code, Codex, Gemini, and OpenCode in tiled tmux panes. Visual dashboards, command palette, context rotation, robot mode API, work assignment, safety system. Go CLI."
 ---
 
 # NTM — Named Tmux Manager
 
-A Go CLI that transforms tmux into a **multi-agent command center** for orchestrating Claude Code, Codex, and Gemini agents in parallel. Spawn, manage, and coordinate AI agents across tiled panes with stunning TUI, automated context rotation, and deep integrations with the Agent Flywheel ecosystem.
+A Go CLI that transforms tmux into a **multi-agent command center** for orchestrating Claude Code, Codex, Gemini, and OpenCode agents in parallel. Spawn, manage, and coordinate AI agents across tiled panes with stunning TUI, automated context rotation, and deep integrations with the Agent Flywheel ecosystem.
 
 ## Why This Exists
 
@@ -49,6 +49,7 @@ ntm palette myproject
 
 ```bash
 ntm spawn myproject --cc=3 --cod=2 --gmi=1   # 3 Claude + 2 Codex + 1 Gemini
+ntm spawn myproject --cc=2 --oc=2            # 2 Claude + 2 OpenCode
 ntm quick myproject --template=go             # Full project scaffold + agents
 ntm create myproject --panes=10               # Empty panes only
 ntm spawn myproject --profiles=architect,implementer,tester
@@ -61,11 +62,13 @@ ntm spawn myproject --profiles=architect,implementer,tester
 | `--cc=N` | Claude Code | `claude` |
 | `--cod=N` | Codex CLI | `codex` |
 | `--gmi=N` | Gemini CLI | `gemini` |
+| `--oc=N` | OpenCode | `opencode` |
 
 ### Add More Agents
 
 ```bash
 ntm add myproject --cc=2              # Add 2 more Claude agents
+ntm add myproject --oc=1              # Add 1 OpenCode agent
 ntm add myproject --cod=1 --gmi=1     # Add mixed agents
 ```
 
@@ -75,6 +78,7 @@ ntm add myproject --cod=1 --gmi=1     # Add mixed agents
 ntm send myproject --cc "Implement user auth"     # To all Claude
 ntm send myproject --cod "Write unit tests"       # To all Codex
 ntm send myproject --gmi "Review and document"    # To all Gemini
+ntm send myproject --oc "Refactor the API layer"  # To all OpenCode
 ntm send myproject --all "Review current state"   # To ALL agents
 ntm interrupt myproject                           # Ctrl+C to all
 ```
@@ -154,6 +158,7 @@ ntm dashboard myproject   # Or: ntm dash myproject
 ntm copy myproject:1              # Copy specific pane
 ntm copy myproject --all          # Copy all panes
 ntm copy myproject --cc           # Copy Claude panes only
+ntm copy myproject --oc           # Copy OpenCode panes only
 ntm copy myproject --pattern 'ERROR'  # Filter by regex
 ntm copy myproject --code         # Extract code blocks only
 ntm copy myproject --output out.txt   # Save to file
@@ -307,6 +312,7 @@ ntm --robot-assign=myproject --assign-strategy=dependency # Unblock downstream
 | **Claude** | Analysis, refactoring, documentation, architecture |
 | **Codex** | Feature implementation, bug fixes, quick tasks |
 | **Gemini** | Documentation, analysis, features |
+| **OpenCode** | Complex tasks, CLI/SDK hybrid workflows, custom agent profiles |
 
 ## Profiles & Personas
 
@@ -496,6 +502,7 @@ rotate_threshold = 0.95
 | Claude | Mauve (Purple) |
 | Codex | Blue |
 | Gemini | Yellow |
+| OpenCode | Cyan |
 | User | Green |
 
 ### Display Width Tiers
@@ -514,8 +521,9 @@ Pattern: `<project>__<agent>_<number>`
 - `myproject__cc_1` - First Claude
 - `myproject__cod_2` - Second Codex
 - `myproject__gmi_1` - First Gemini
+- `myproject__oc_1` - First OpenCode
 
-Status indicators: **C** = Claude, **X** = Codex, **G** = Gemini, **U** = User
+Status indicators: **C** = Claude, **X** = Codex, **G** = Gemini, **O** = OpenCode, **U** = User
 
 ## Shell Aliases
 

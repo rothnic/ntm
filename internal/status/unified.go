@@ -11,36 +11,34 @@ import (
 
 // UnifiedDetector implements the Detector interface by combining
 // activity, prompt, and error detection into a unified status check.
-// UnifiedDetector implements the Detector interface by combining
-// activity, prompt, and error detection into a unified status check.
 type UnifiedDetector struct {
 	config   DetectorConfig
 	runtimes []RuntimeDetector
 }
 
-// NewDetector creates a new UnifiedDetector with default configuration
+// NewDetector creates a new UnifiedDetector with default configuration.
 func NewDetector() *UnifiedDetector {
 	mgr, _ := opencode.NewManager()
 	return &UnifiedDetector{
 		config: DefaultConfig(),
 		runtimes: []RuntimeDetector{
-			NewOpenCodeDetector(mgr),
+			NewOpenCodeRuntimeAdapter(mgr),
 		},
 	}
 }
 
-// NewDetectorWithConfig creates a new UnifiedDetector with custom configuration
+// NewDetectorWithConfig creates a new UnifiedDetector with custom configuration.
 func NewDetectorWithConfig(config DetectorConfig) *UnifiedDetector {
 	mgr, _ := opencode.NewManager()
 	return &UnifiedDetector{
 		config: config,
 		runtimes: []RuntimeDetector{
-			NewOpenCodeDetector(mgr),
+			NewOpenCodeRuntimeAdapter(mgr),
 		},
 	}
 }
 
-// Config returns the current detector configuration
+// Config returns the current detector configuration.
 func (d *UnifiedDetector) Config() DetectorConfig {
 	return d.config
 }
@@ -104,7 +102,6 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 	if time.Since(lastActivity) < threshold {
 		return StateWorking, ErrorNone
 	}
-
 
 	// Heuristic: if no recent activity and output suggests agent is waiting,
 	// prefer idle over unknown. This catches cases where:
