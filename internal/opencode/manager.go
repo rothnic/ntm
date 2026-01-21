@@ -30,8 +30,8 @@ const (
 	HealthCheckTimeout      = 500 * time.Millisecond
 
 	// Graceful shutdown
-	ShutdownGracePeriod   = 5 * time.Second
-	ShutdownPollInterval  = 500 * time.Millisecond
+	ShutdownGracePeriod  = 5 * time.Second
+	ShutdownPollInterval = 500 * time.Millisecond
 )
 
 // Manager handles lifecycle of per-project opencode servers
@@ -505,18 +505,193 @@ func (m *Manager) ProvisionSessions(ctx context.Context, projectPath, ntmSession
 
 // SendPrompt sends a prompt to the specified session via SDK
 func (m *Manager) SendPrompt(ctx context.Context, projectPath, sessionID, prompt string) error {
+	return m.SendPromptWithModel(ctx, projectPath, sessionID, prompt, "", "")
+}
+
+// SendPromptWithModel sends a prompt to the specified session with an explicit model
+func (m *Manager) SendPromptWithModel(ctx context.Context, projectPath, sessionID, prompt, providerID, modelID string) error {
 	client, err := m.Client(projectPath)
 	if err != nil {
 		return err
 	}
 
-	_, err = client.Session.Prompt(ctx, sessionID, opencode.SessionPromptParams{
+	params := opencode.SessionPromptParams{
 		Parts: opencode.F([]opencode.SessionPromptParamsPartUnion{
 			opencode.TextPartInputParam{
 				Type: opencode.F(opencode.TextPartInputTypeText),
 				Text: opencode.F(prompt),
 			},
 		}),
-	})
+	}
+
+	// Add model if specified
+	if providerID != "" && modelID != "" {
+		params.Model = opencode.F(opencode.SessionPromptParamsModel{
+			ProviderID: opencode.F(providerID),
+			ModelID:    opencode.F(modelID),
+		})
+	}
+
+	_, err = client.Session.Prompt(ctx, sessionID, params)
 	return err
+}
+
+// PromptConfig holds configuration for sending prompts with retry/verification
+type PromptConfig struct {
+	ProviderID    string
+	ModelID       string
+	MaxRetries    int           // Default: 3
+	RetryInterval time.Duration // Default: 2s
+	VerifyTimeout time.Duration // Default: 5s
+}
+
+// SendPromptReliable sends a prompt with retry logic and verification.
+// It verifies the prompt was received by checking the session messages.
+func (m *Manager) SendPromptReliable(ctx context.Context, projectPath, sessionID, prompt string, cfg PromptConfig) error {
+	// Set defaults
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = 3
+	}
+	if cfg.RetryInterval == 0 {
+		cfg.RetryInterval = 2 * time.Second
+	}
+	if cfg.VerifyTimeout == 0 {
+		cfg.VerifyTimeout = 5 * time.Second
+	}
+
+	client, err := m.Client(projectPath)
+	if err != nil {
+		return err
+	}
+
+	// Get initial message count for verification
+	initialCount, err := m.getMessageCount(ctx, client, sessionID)
+	if err != nil {
+		return fmt.Errorf("get initial message count: %w", err)
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= cfg.MaxRetries; attempt++ {
+		// Build prompt params
+		params := opencode.SessionPromptParams{
+			Parts: opencode.F([]opencode.SessionPromptParamsPartUnion{
+				opencode.TextPartInputParam{
+					Type: opencode.F(opencode.TextPartInputTypeText),
+					Text: opencode.F(prompt),
+				},
+			}),
+		}
+
+		if cfg.ProviderID != "" && cfg.ModelID != "" {
+			params.Model = opencode.F(opencode.SessionPromptParamsModel{
+				ProviderID: opencode.F(cfg.ProviderID),
+				ModelID:    opencode.F(cfg.ModelID),
+			})
+		}
+
+		// Send prompt
+		_, lastErr = client.Session.Prompt(ctx, sessionID, params)
+		if lastErr != nil {
+			// SDK call failed - retry
+			if attempt < cfg.MaxRetries {
+				time.Sleep(cfg.RetryInterval)
+				continue
+			}
+			return fmt.Errorf("send prompt after %d attempts: %w", cfg.MaxRetries, lastErr)
+		}
+
+		// Verify prompt was received
+		verified, verifyErr := m.verifyPromptReceived(ctx, client, sessionID, initialCount, cfg.VerifyTimeout)
+		if verifyErr != nil {
+			lastErr = verifyErr
+			if attempt < cfg.MaxRetries {
+				time.Sleep(cfg.RetryInterval)
+				continue
+			}
+			return fmt.Errorf("verify prompt after %d attempts: %w", cfg.MaxRetries, lastErr)
+		}
+
+		if verified {
+			return nil // Success
+		}
+
+		// Not verified - retry
+		lastErr = fmt.Errorf("prompt not verified in session messages")
+		if attempt < cfg.MaxRetries {
+			time.Sleep(cfg.RetryInterval)
+		}
+	}
+
+	return fmt.Errorf("prompt delivery failed after %d attempts: %w", cfg.MaxRetries, lastErr)
+}
+
+// getMessageCount returns the current message count for a session
+func (m *Manager) getMessageCount(ctx context.Context, client *opencode.Client, sessionID string) (int, error) {
+	messages, err := client.Session.Messages(ctx, sessionID, opencode.SessionMessagesParams{})
+	if err != nil {
+		return 0, err
+	}
+	if messages == nil {
+		return 0, nil
+	}
+	return len(*messages), nil
+}
+
+// verifyPromptReceived checks that new messages were added to the session
+func (m *Manager) verifyPromptReceived(ctx context.Context, client *opencode.Client, sessionID string, initialCount int, timeout time.Duration) (bool, error) {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 500 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		count, err := m.getMessageCount(ctx, client, sessionID)
+		if err != nil {
+			return false, err
+		}
+
+		// We expect at least 2 new messages: user prompt + assistant response (or start)
+		if count > initialCount {
+			return true, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(pollInterval):
+			// Continue polling
+		}
+	}
+
+	return false, nil
+}
+
+// WaitForSessionIdle waits for the session to become idle using SSE events
+func (m *Manager) WaitForSessionIdle(ctx context.Context, projectPath, sessionID string, timeout time.Duration) error {
+	client, err := m.Client(projectPath)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	stream := client.Event.ListStreaming(ctx, opencode.EventListParams{})
+	defer stream.Close()
+
+	for stream.Next() {
+		event := stream.Current()
+
+		// Check for session.idle event
+		if event.Type == "session.idle" {
+			props, ok := event.Properties.(opencode.EventListResponseEventSessionIdleProperties)
+			if ok && props.SessionID == sessionID {
+				return nil
+			}
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		return fmt.Errorf("event stream error: %w", err)
+	}
+
+	return fmt.Errorf("timeout waiting for session idle")
 }

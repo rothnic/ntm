@@ -926,7 +926,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			if !IsJSONOutput() {
 				fmt.Printf("Provisioning OpenCode environment for %s...\n", dir)
 			}
-			
+
 			// Use self-contained manager to provision sessions for all agents
 			// Use context for potentially slow operations
 			provCtx, cancelProv := context.WithTimeout(context.Background(), 30*time.Second) // generous timeout for starting server + many API calls
@@ -941,7 +941,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			}
 
 			opencodeServerURL = fmt.Sprintf("http://127.0.0.1:%d", info.Port)
-			
+
 			if !IsJSONOutput() {
 				fmt.Printf("✓ OpenCode server running at %s\n", opencodeServerURL)
 				fmt.Printf("✓ Provisioned %d unique sessions\n", len(sessionIDs))
@@ -1092,14 +1092,14 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		}
 
 		agentCmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
-			Model:            resolvedModel,
-			ModelAlias:       agent.Model,
-			SessionName:      opts.Session,
-			PaneIndex:        agent.Index,
-			AgentType:        string(agent.Type),
-			ProjectDir:       dir,
-			SystemPromptFile: systemPromptFile,
-			PersonaName:      personaName,
+			Model:             resolvedModel,
+			ModelAlias:        agent.Model,
+			SessionName:       opts.Session,
+			PaneIndex:         agent.Index,
+			AgentType:         string(agent.Type),
+			ProjectDir:        dir,
+			SystemPromptFile:  systemPromptFile,
+			PersonaName:       personaName,
 			OpenCodeServerURL: opencodeServerURL,
 			OpenCodeSessionID: specificOcSessionID,
 		})
@@ -1147,7 +1147,6 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		if err != nil {
 			return outputError(fmt.Errorf("building %s agent command: %w", agent.Type, err))
 		}
-
 
 		// Wait for pane to be ready before sending command
 		// Using a short sleep is a simple heuristic to ensure the shell is ready
@@ -1256,38 +1255,56 @@ func spawnSessionLogic(opts SpawnOptions) error {
 					// OpenCode requires waiting for TUI to be fully interactive
 					// Poll for readiness up to 10 seconds
 					deadline := time.Now().Add(10 * time.Second)
-                    
+
 					for time.Now().Before(deadline) {
 						// Capture enough lines to see the "Ask anything..." prompt (which might be centered)
 						out, _ := tmux.CapturePaneOutput(paneID, 20)
 						state := determineAgentState(out, string(agentType))
-						
+
 						if state == "idle" {
 							break
 						}
 						time.Sleep(500 * time.Millisecond)
 					}
-					// Extra wait for TUI input loop to be ready
-					time.Sleep(3000 * time.Millisecond)
+					// No arbitrary wait - we use SDK retry/verification instead
 
 					// Look up specific session ID for this agent
 					if sid, ok := agentOpenCodeSessions[idx]; ok && sid != "" {
 						mgr, err := opencode.NewManager()
 						if err == nil {
+							// Parse provider/model from agent.Model (format: "provider/model")
+							providerID, modelID := "", ""
+							if agent.Model != "" {
+								parts := strings.SplitN(agent.Model, "/", 2)
+								if len(parts) == 2 {
+									providerID = parts[0]
+									modelID = parts[1]
+								}
+							}
+
+							// Use reliable send with retry and verification
+							cfg := opencode.PromptConfig{
+								ProviderID:    providerID,
+								ModelID:       modelID,
+								MaxRetries:    3,
+								RetryInterval: 2 * time.Second,
+								VerifyTimeout: 10 * time.Second,
+							}
+
 							// Serialize prompt injection to avoid server contention
 							opencodePromptMu.Lock()
-							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-							err := mgr.SendPrompt(ctx, dir, sid, finalPrompt)
+							ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+							err := mgr.SendPromptReliable(ctx, dir, sid, finalPrompt, cfg)
 							cancel()
 							opencodePromptMu.Unlock()
-							
+
 							if err == nil {
 								if !IsJSONOutput() {
 									fmt.Printf("✓ Sent prompt via SDK to OpenCode session %s (Agent %d)\n", sid, idx)
 								}
 								return
 							}
-							
+
 							// Always log failure to stderr so it's visible even in JSON mode
 							fmt.Fprintf(os.Stderr, "⚠ SDK prompt injection failed for agent %d: %v. Falling back to keys.\n", idx, err)
 						}
