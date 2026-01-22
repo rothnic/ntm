@@ -43,6 +43,7 @@ var processPatterns = map[string]string{
 	"windsurf":     "windsurf",
 	"aider":        "aider",
 	"aider-chat":   "aider",
+	"opencode":     "opencode",
 }
 
 // contentPatterns provides regex patterns for detecting agents from output
@@ -168,7 +169,7 @@ func detectFromContent(content string) AgentDetection {
 func DetectFromTitle(title string) AgentDetection {
 	title = strings.ToLower(title)
 
-	agents := []string{"claude", "codex", "gemini", "cursor", "windsurf", "aider"}
+	agents := []string{"claude", "codex", "gemini", "cursor", "windsurf", "aider", "opencode"}
 	for _, agent := range agents {
 		if strings.Contains(title, agent) {
 			return AgentDetection{
@@ -184,7 +185,7 @@ func DetectFromTitle(title string) AgentDetection {
 
 // DetectFromNTMTitle checks for NTM's pane title convention (session__type_n)
 func DetectFromNTMTitle(title string) AgentDetection {
-	// Check for __cc, __cod, __gmi suffixes (case-insensitive)
+	// Check for __cc, __cod, __gmi, __oc suffixes (case-insensitive)
 	lower := strings.ToLower(title)
 	switch {
 	case strings.Contains(lower, "__cc"):
@@ -193,6 +194,8 @@ func DetectFromNTMTitle(title string) AgentDetection {
 		return AgentDetection{Type: "codex", Confidence: 0.9, Method: MethodTitle}
 	case strings.Contains(lower, "__gmi"):
 		return AgentDetection{Type: "gemini", Confidence: 0.9, Method: MethodTitle}
+	case strings.Contains(lower, "__oc"):
+		return AgentDetection{Type: "opencode", Confidence: 0.9, Method: MethodTitle}
 	}
 
 	return AgentDetection{Type: "unknown", Confidence: 0.0, Method: MethodUnknown}

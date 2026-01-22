@@ -382,5 +382,8 @@ func detectAgentType(title string) string {
 	if strings.Contains(title, "gemini") || strings.Contains(title, "gmi") {
 		return "gmi"
 	}
+	if strings.Contains(title, "opencode") || strings.Contains(title, "__oc_") {
+		return "oc"
+	}
 	return ""
 }

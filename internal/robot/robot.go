@@ -31,7 +31,7 @@ import (
 type CASSStatusOutput struct {
 	CASSAvailable bool           `json:"cass_available"`
 	Healthy       bool           `json:"healthy"`
-		Index         CASSIndexStats `json:"index"`
+	Index         CASSIndexStats `json:"index"`
 }
 
 // CASSIndexStats holds index statistics
@@ -1358,6 +1358,8 @@ func detectAgentType(title string) string {
 		return "windsurf"
 	case strings.Contains(titleLower, "aider"):
 		return "aider"
+	case strings.Contains(titleLower, "opencode"):
+		return "opencode"
 	}
 
 	// Check short forms in pane titles (e.g., "session__cc_1", "project__cod_2")
@@ -1370,6 +1372,8 @@ func detectAgentType(title string) string {
 		return "codex"
 	case containsShortForm(titleLower, "gmi"):
 		return "gemini"
+	case containsShortForm(titleLower, "oc"):
+		return "opencode"
 	}
 
 	return "unknown"
@@ -1786,7 +1790,7 @@ func resolveAgentsForSession(panes []tmux.Pane, mailAgents []agentmail.Agent) ma
 			mapping[k] = v
 		}
 	}
-	
+
 	return mapping
 }
 
@@ -1960,7 +1964,7 @@ func PrintSnapshot(cfg *config.Config) error {
 			if agentName, ok := agentMapping[pane.Title]; ok {
 				if stats, ok := mailStats[agentName]; ok {
 					agent.PendingMail = stats.Unread
-					
+
 					// Update the mail summary with the pane ID
 					if output.AgentMail != nil && output.AgentMail.Agents != nil {
 						if s, exists := output.AgentMail.Agents[agentName]; exists {
@@ -3396,7 +3400,6 @@ func countInbox(ctx context.Context, client *agentmail.Client, projectKey, agent
 	return len(msgs)
 }
 
-
 // ContextOutput is the structured output for --robot-context
 type ContextOutput struct {
 	RobotResponse
@@ -4140,6 +4143,7 @@ func PrintTriage(opts TriageOptions) error {
 
 	return encodeJSON(output)
 }
+
 // Additional BV robot modes for comprehensive analysis
 
 // LabelAttentionOptions configures label attention analysis

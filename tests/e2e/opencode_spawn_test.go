@@ -26,18 +26,18 @@ func TestOpencodeSpawnIntegration(t *testing.T) {
 	t.Log("Building NTM binary...")
 	tmpDir := t.TempDir()
 	ntmBin := filepath.Join(tmpDir, "ntm")
-	
+
 	// Assuming we are running from root of repo, build ./cmd/ntm
 	buildCmd := exec.Command("go", "build", "-o", ntmBin, "./cmd/ntm")
 	// Run from module root
-	// We need to find module root. 
+	// We need to find module root.
 	// If test is run from ./tests/e2e, we need to go up 2 levels.
 	wd, _ := os.Getwd()
 	// Heuristic: if we are in tests/e2e
 	if strings.HasSuffix(wd, "tests/e2e") {
 		buildCmd.Dir = "../.."
 	}
-	
+
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		t.Fatalf("Failed to build ntm: %v\nOutput: %s", err, out)
 	}
@@ -54,7 +54,7 @@ func TestOpencodeSpawnIntegration(t *testing.T) {
 		// Stop opencode server
 		cleanupCmd := exec.Command(ntmBin, "opencode", "stop", projectDir, "--force")
 		_ = cleanupCmd.Run()
-		
+
 		// Kill tmux session
 		_ = tmux.KillSession(sessionName)
 	})
@@ -63,14 +63,14 @@ func TestOpencodeSpawnIntegration(t *testing.T) {
 	// ntm spawn [session-name] --oc=2 ...
 	// Command must be run from the project directory for ntm to pick it up as the project root
 	t.Logf("Spawning session %s with 2 OpenCode agents...", sessionName)
-	spawnCmd := exec.Command(ntmBin, "spawn", sessionName, 
-		"--oc=2", 
-		"--prompt=Hello E2E Test", 
+	spawnCmd := exec.Command(ntmBin, "spawn", sessionName,
+		"--oc=2",
+		"--prompt=Hello E2E Test",
 	)
 	spawnCmd.Dir = projectDir
 	// Point NTM at our temp directory so it finds the project
 	spawnCmd.Env = append(os.Environ(), fmt.Sprintf("NTM_PROJECTS_BASE=%s", tmpDir))
-	
+
 	out, err := spawnCmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to spawn session: %v\nOutput: %s", err, out)
@@ -85,14 +85,13 @@ func TestOpencodeSpawnIntegration(t *testing.T) {
 	// Allow tmux to re-layout
 	time.Sleep(2 * time.Second)
 
-
 	// 4. Verify Tmux Session Created
 	t.Log("Verifying tmux session...")
 	panes, err := tmux.GetPanes(sessionName)
 	if err != nil {
 		t.Fatalf("Failed to get panes: %v", err)
 	}
-	
+
 	// Expect 2 OpenCode agents + 1 User pane = 3 panes
 	if len(panes) < 3 {
 		t.Fatalf("Expected at least 3 panes (2 agents + 1 user), got %d", len(panes))
@@ -101,20 +100,20 @@ func TestOpencodeSpawnIntegration(t *testing.T) {
 	// 5. Verify OpenCode Agents Received Prompt via SDK
 	// Instead of relying solely on TUI scraping (which can be flaky in CI),
 	// we use the SDK to verify the session state directly.
-	
+
 	// 5. Verify All OpenCode Agents Received Prompt via SDK
 	// We require that ALL OpenCode agents reflect the prompt or activity.
 	// Since they are now independent sessions, they must each process the prompt.
 
 	expectedCount := 2 // We spawned 2 agents
 	t.Logf("Polling OpenCode panes for prompt reception or activity (strict check for %d agents)...", expectedCount)
-	
+
 	// Track verified panes by index
 	verifiedPanes := make(map[int]bool)
 
 	// Polling loop with timeout
 	deadline := time.Now().Add(30 * time.Second)
-	
+
 	for time.Now().Before(deadline) {
 		for _, pane := range panes {
 			// Skip user pane (usually 0) and already verified panes
@@ -127,8 +126,16 @@ func TestOpencodeSpawnIntegration(t *testing.T) {
 				continue
 			}
 
-			// Verify it's an OpenCode pane
-			if !strings.Contains(content, "opencode attach") && !strings.Contains(content, "NTM Session") && !strings.Contains(content, "Sisyphus") {
+			// Verify it's an OpenCode pane by checking for recognizable patterns
+			// OpenCode TUI shows: v1.1.x version string, model info, or MCP tool descriptions
+			isOpenCodePane := strings.Contains(content, "NTM Session") ||
+				strings.Contains(content, "opencode attach") ||
+				strings.Contains(content, "Sisyphus") ||
+				strings.Contains(content, "v1.1.") || // OpenCode version
+				strings.Contains(content, "ctrl+t variants") || // OpenCode TUI footer
+				strings.Contains(content, "ctrl+p commands") || // OpenCode TUI footer
+				strings.Contains(content, "antigravity") // Model identifier
+			if !isOpenCodePane {
 				continue
 			}
 
@@ -136,7 +143,8 @@ func TestOpencodeSpawnIntegration(t *testing.T) {
 			if strings.Contains(content, "Hello E2E Test") {
 				t.Logf("✓ Pane %d received prompt (text match)", pane.Index)
 				verifiedPanes[pane.Index] = true
-			} else if strings.Contains(content, "Thinking") || strings.Contains(content, "Generating") {
+			} else if strings.Contains(content, "Thinking") || strings.Contains(content, "Generating") ||
+				strings.Contains(content, "Build") { // OpenCode shows "Build" when processing
 				t.Logf("✓ Pane %d received prompt (agent active)", pane.Index)
 				verifiedPanes[pane.Index] = true
 			}

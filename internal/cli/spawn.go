@@ -962,7 +962,9 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			// Setup cleanup hook
 			if exe, err := os.Executable(); err == nil {
 				cleanupCmd := fmt.Sprintf("%s opencode stop %s --force", config.ShellQuote(exe), config.ShellQuote(dir))
-				if err := tmux.DefaultClient.RunSilent("set-hook", "-t", opts.Session, "session-destroyed", fmt.Sprintf("run-shell '%s'", cleanupCmd)); err != nil {
+				// Use session-closed hook (tmux 3.0+). The older session-destroyed hook
+				// was renamed in tmux 3.0.
+				if err := tmux.DefaultClient.RunSilent("set-hook", "-t", opts.Session, "session-closed", fmt.Sprintf("run-shell '%s'", cleanupCmd)); err != nil {
 					if !IsJSONOutput() {
 						output.PrintWarningf("Failed to set cleanup hook: %v", err)
 					}
