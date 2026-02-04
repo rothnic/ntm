@@ -21,6 +21,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/gemini"
 	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
+	"github.com/Dicklesworthstone/ntm/internal/opencode"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/persona"
 	"github.com/Dicklesworthstone/ntm/internal/plugins"
@@ -102,6 +103,7 @@ type SpawnOptions struct {
 	CCCount     int
 	CodCount    int
 	GmiCount    int
+	OcCount     int
 	UserPane    bool
 	AutoRestart bool
 	RecipeName  string
@@ -458,6 +460,7 @@ Examples:
 			ccCount := agentSpecs.ByType(AgentTypeClaude).TotalCount()
 			codCount := agentSpecs.ByType(AgentTypeCodex).TotalCount()
 			gmiCount := agentSpecs.ByType(AgentTypeGemini).TotalCount()
+			ocCount := agentSpecs.ByType(AgentTypeOpenCode).TotalCount()
 
 			// Apply defaults
 			if len(agentSpecs) == 0 && len(cfg.ProjectDefaults) > 0 {
@@ -470,11 +473,15 @@ Examples:
 				if v, ok := cfg.ProjectDefaults["gmi"]; ok && v > 0 {
 					agentSpecs = append(agentSpecs, AgentSpec{Type: AgentTypeGemini, Count: v})
 				}
+				if v, ok := cfg.ProjectDefaults["oc"]; ok && v > 0 {
+					agentSpecs = append(agentSpecs, AgentSpec{Type: AgentTypeOpenCode, Count: v})
+				}
 				ccCount = agentSpecs.ByType(AgentTypeClaude).TotalCount()
 				codCount = agentSpecs.ByType(AgentTypeCodex).TotalCount()
 				gmiCount = agentSpecs.ByType(AgentTypeGemini).TotalCount()
+				ocCount = agentSpecs.ByType(AgentTypeOpenCode).TotalCount()
 				if !IsJSONOutput() && len(agentSpecs) > 0 {
-					fmt.Printf("Using default configuration: %d cc, %d cod, %d gmi\n", ccCount, codCount, gmiCount)
+					fmt.Printf("Using default configuration: %d cc, %d cod, %d gmi, %d oc\n", ccCount, codCount, gmiCount, ocCount)
 				}
 			}
 
@@ -538,6 +545,7 @@ Examples:
 				CCCount:            ccCount,
 				CodCount:           codCount,
 				GmiCount:           gmiCount,
+				OcCount:            ocCount,
 				UserPane:           !noUserPane,
 				AutoRestart:        autoRestart,
 				RecipeName:         recipeName,
@@ -618,6 +626,9 @@ Examples:
 		}
 	}
 
+	// Register OpenCode flag
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeOpenCode, &agentSpecs), "oc", "OpenCode agents (N or N:model)")
+
 	return cmd
 }
 
@@ -648,9 +659,9 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	// Calculate total agents - either from Agents slice or explicit counts (legacy path)
 	var totalAgents int
 	if len(opts.Agents) == 0 {
-		totalAgents = opts.CCCount + opts.CodCount + opts.GmiCount
+		totalAgents = opts.CCCount + opts.CodCount + opts.GmiCount + opts.OcCount
 		if totalAgents == 0 {
-			return outputError(fmt.Errorf("no agents specified (use --cc, --cod, --gmi, or plugin flags)"))
+			return outputError(fmt.Errorf("no agents specified (use --cc, --cod, --gmi, --oc, or plugin flags)"))
 		}
 	} else {
 		totalAgents = len(opts.Agents)
@@ -680,6 +691,7 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			"NTM_AGENT_COUNT_CC":    fmt.Sprintf("%d", opts.CCCount),
 			"NTM_AGENT_COUNT_COD":   fmt.Sprintf("%d", opts.CodCount),
 			"NTM_AGENT_COUNT_GMI":   fmt.Sprintf("%d", opts.GmiCount),
+			"NTM_AGENT_COUNT_OC":    fmt.Sprintf("%d", opts.OcCount),
 			"NTM_AGENT_COUNT_TOTAL": fmt.Sprintf("%d", totalAgents),
 		},
 	}
@@ -844,6 +856,9 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	var setupWg sync.WaitGroup
 	var maxStaggerDelay time.Duration
 
+	// Mutex to serialize OpenCode prompt injection to avoid server contention
+	var opencodePromptMu sync.Mutex
+
 	// Initialize rate limit tracker for smart stagger mode (bd-2wih)
 	var rateLimitTracker *ratelimit.RateLimitTracker
 	if opts.StaggerMode == "smart" {
@@ -896,6 +911,72 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		}
 	}
 
+	// Start OpenCode server and provision sessions if needed
+	var opencodeServerURL string
+	// Map to store session ID for each OpenCode agent index
+	agentOpenCodeSessions := make(map[int]string)
+
+	if opts.OcCount > 0 {
+		mgr, err := opencode.NewManager()
+		if err != nil {
+			if !IsJSONOutput() {
+				output.PrintWarningf("Failed to create OpenCode manager: %v", err)
+			}
+		} else {
+			if !IsJSONOutput() {
+				fmt.Printf("Provisioning OpenCode environment for %s...\n", dir)
+			}
+
+			// Use self-contained manager to provision sessions for all agents
+			// Use context for potentially slow operations
+			provCtx, cancelProv := context.WithTimeout(context.Background(), 30*time.Second) // generous timeout for starting server + many API calls
+			info, sessionIDs, err := mgr.ProvisionSessions(provCtx, dir, opts.Session, opts.OcCount)
+			cancelProv()
+
+			if err != nil {
+				if !IsJSONOutput() {
+					output.PrintWarningf("Failed to provision OpenCode sessions: %v", err)
+				}
+				return outputError(fmt.Errorf("provisioning opencode environment: %w", err))
+			}
+
+			opencodeServerURL = fmt.Sprintf("http://127.0.0.1:%d", info.Port)
+
+			if !IsJSONOutput() {
+				fmt.Printf("✓ OpenCode server running at %s\n", opencodeServerURL)
+				fmt.Printf("✓ Provisioned %d unique sessions\n", len(sessionIDs))
+			}
+
+			// Map session IDs to agent indices
+			// We need to find the OpenCode agents in order to map them
+			ocIdx := 0
+			for _, a := range opts.Agents {
+				if a.Type == AgentTypeOpenCode {
+					if ocIdx < len(sessionIDs) {
+						agentOpenCodeSessions[a.Index] = sessionIDs[ocIdx]
+						ocIdx++
+					}
+				}
+			}
+
+			// Setup cleanup hook
+			if exe, err := os.Executable(); err == nil {
+				cleanupCmd := fmt.Sprintf("%s opencode stop %s --force", config.ShellQuote(exe), config.ShellQuote(dir))
+				// Use session-closed hook (tmux 3.0+). The older session-destroyed hook
+				// was renamed in tmux 3.0.
+				if err := tmux.DefaultClient.RunSilent("set-hook", "-t", opts.Session, "session-closed", fmt.Sprintf("run-shell '%s'", cleanupCmd)); err != nil {
+					if !IsJSONOutput() {
+						output.PrintWarningf("Failed to set cleanup hook: %v", err)
+					}
+				} else {
+					if !IsJSONOutput() {
+						fmt.Println("✓ Configured auto-cleanup on session exit")
+					}
+				}
+			}
+		}
+	}
+
 	// Build recovery context if enabled (smart session recovery)
 	// Note: rc is kept as a pointer so we can format per-agent-type in the goroutines
 	var rc *RecoveryContext
@@ -939,6 +1020,8 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			agentCmdTemplate = cfg.Agents.Codex
 		case AgentTypeGemini:
 			agentCmdTemplate = cfg.Agents.Gemini
+		case AgentTypeOpenCode:
+			agentCmdTemplate = cfg.Agents.OpenCode
 		default:
 			// Check plugins
 			if p, ok := opts.PluginMap[string(agent.Type)]; ok {
@@ -1004,15 +1087,23 @@ func spawnSessionLogic(opts SpawnOptions) error {
 		}
 
 		// Generate command using template
+		// Lookup OpenCode session ID if applicable
+		var specificOcSessionID string
+		if sid, ok := agentOpenCodeSessions[agent.Index]; ok {
+			specificOcSessionID = sid
+		}
+
 		agentCmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
-			Model:            resolvedModel,
-			ModelAlias:       agent.Model,
-			SessionName:      opts.Session,
-			PaneIndex:        agent.Index,
-			AgentType:        string(agent.Type),
-			ProjectDir:       dir,
-			SystemPromptFile: systemPromptFile,
-			PersonaName:      personaName,
+			Model:             resolvedModel,
+			ModelAlias:        agent.Model,
+			SessionName:       opts.Session,
+			PaneIndex:         agent.Index,
+			AgentType:         string(agent.Type),
+			ProjectDir:        dir,
+			SystemPromptFile:  systemPromptFile,
+			PersonaName:       personaName,
+			OpenCodeServerURL: opencodeServerURL,
+			OpenCodeSessionID: specificOcSessionID,
 		})
 		if err != nil {
 			return outputError(fmt.Errorf("generating command for %s agent: %w", agent.Type, err))
@@ -1059,8 +1150,25 @@ func spawnSessionLogic(opts SpawnOptions) error {
 			return outputError(fmt.Errorf("building %s agent command: %w", agent.Type, err))
 		}
 
+		// Wait for pane to be ready before sending command
+		// Using a short sleep is a simple heuristic to ensure the shell is ready
+		// to receive input (e.g. after sourcing .zshrc).
+		time.Sleep(3000 * time.Millisecond)
+
 		if err := tmux.SendKeys(pane.ID, cmd, true); err != nil {
 			return outputError(fmt.Errorf("launching %s agent: %w", agent.Type, err))
+		}
+
+		// If OpenCode agent, store session ID in pane options for UnifiedDetector
+		if agent.Type == AgentTypeOpenCode {
+			if sid, ok := agentOpenCodeSessions[agent.Index]; ok && sid != "" {
+				// Using @-prefixed user option
+				if err := tmux.DefaultClient.RunSilent("set-option", "-p", "-t", pane.ID, "@opencode_session_id", sid); err != nil {
+					if !IsJSONOutput() {
+						fmt.Printf("⚠ Warning: could not set session ID on pane: %v\n", err)
+					}
+				}
+			}
 		}
 
 		// Parallelize post-launch setup and prompt delivery
@@ -1144,8 +1252,67 @@ func spawnSessionLogic(opts SpawnOptions) error {
 					finalPrompt = agentSpawnCtx.AnnotatePrompt(finalPrompt, true)
 				}
 
-				// Determine delay
-				if isStaggered {
+				// Determine delay and wait for readiness
+				if agentType == AgentTypeOpenCode {
+					// OpenCode requires waiting for TUI to be fully interactive
+					// Poll for readiness up to 10 seconds
+					deadline := time.Now().Add(10 * time.Second)
+
+					for time.Now().Before(deadline) {
+						// Capture enough lines to see the "Ask anything..." prompt (which might be centered)
+						out, _ := tmux.CapturePaneOutput(paneID, 20)
+						state := determineAgentState(out, string(agentType))
+
+						if state == "idle" {
+							break
+						}
+						time.Sleep(500 * time.Millisecond)
+					}
+					// No arbitrary wait - we use SDK retry/verification instead
+
+					// Look up specific session ID for this agent
+					if sid, ok := agentOpenCodeSessions[idx]; ok && sid != "" {
+						mgr, err := opencode.NewManager()
+						if err == nil {
+							// Parse provider/model from agent.Model (format: "provider/model")
+							providerID, modelID := "", ""
+							if agent.Model != "" {
+								parts := strings.SplitN(agent.Model, "/", 2)
+								if len(parts) == 2 {
+									providerID = parts[0]
+									modelID = parts[1]
+								}
+							}
+
+							// Use reliable send with retry and verification
+							cfg := opencode.PromptConfig{
+								ProviderID:    providerID,
+								ModelID:       modelID,
+								MaxRetries:    3,
+								RetryInterval: 2 * time.Second,
+								VerifyTimeout: 10 * time.Second,
+							}
+
+							// Serialize prompt injection to avoid server contention
+							opencodePromptMu.Lock()
+							ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+							err := mgr.SendPromptReliable(ctx, dir, sid, finalPrompt, cfg)
+							cancel()
+							opencodePromptMu.Unlock()
+
+							if err == nil {
+								if !IsJSONOutput() {
+									fmt.Printf("✓ Sent prompt via SDK to OpenCode session %s (Agent %d)\n", sid, idx)
+								}
+								return
+							}
+
+							// Always log failure to stderr so it's visible even in JSON mode
+							fmt.Fprintf(os.Stderr, "⚠ SDK prompt injection failed for agent %d: %v. Falling back to keys.\n", idx, err)
+						}
+					}
+
+				} else if isStaggered {
 					// For staggered delivery, we sleep the calculated delay.
 					// Since this goroutine runs in parallel with others starting at T=0,
 					// sleeping 'promptDelay' achieves the correct absolute timing (approx).
@@ -1279,12 +1446,14 @@ func spawnSessionLogic(opts SpawnOptions) error {
 				agentCounts.Codex++
 			case tmux.AgentGemini:
 				agentCounts.Gemini++
+			case tmux.AgentOpenCode:
+				agentCounts.OpenCode++
 			default:
 				// Other/plugin agents
-				agentCounts.User++ // Maybe separate category?
+				agentCounts.User++
 			}
 		}
-		agentCounts.Total = agentCounts.Claude + agentCounts.Codex + agentCounts.Gemini
+		agentCounts.Total = agentCounts.Claude + agentCounts.Codex + agentCounts.Gemini + agentCounts.OpenCode + agentCounts.User
 
 		// Build stagger config if enabled
 		var staggerCfg *output.StaggerConfig
@@ -2465,12 +2634,14 @@ func sendInitPromptToReadyAgents(session, prompt string) (int, error) {
 
 	for _, pane := range panes {
 		at := detectAgentTypeFromTitle(pane.Title)
+
 		if at == "user" || at == "unknown" {
 			continue
 		}
 
 		scrollback, _ := tmux.CapturePaneOutput(pane.ID, 10)
 		state := determineAgentState(scrollback, at)
+
 		if state != "idle" {
 			continue
 		}

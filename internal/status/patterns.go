@@ -52,6 +52,10 @@ var promptPatterns = []PromptPattern{
 	{AgentType: "aider", Regex: regexp.MustCompile(`(?i)aider>?\s*$`), Description: "Aider prompt"},
 	{AgentType: "aider", Regex: regexp.MustCompile(`>\s*$`), Description: "Aider simple prompt"},
 
+	// OpenCode patterns
+	{AgentType: "oc", Regex: regexp.MustCompile(`(?i)Ask anything\.\.\.`), Description: "OpenCode input prompt"},
+	{AgentType: "oc", Regex: regexp.MustCompile(`(?i)ctrl\+t variants`), Description: "OpenCode status bar"},
+
 	// Generic shell prompts (for user panes and fallback)
 	// Match simple prompts like "$" or "user@host:~$ "
 	// Avoid matching sentences like "cost is $" by disallowing spaces in the prefix
@@ -125,6 +129,7 @@ var knownAgentTypes = map[string]bool{
 	"cc":       true, // Claude Code uses "claude>" or ">" prompts
 	"cod":      true, // Codex uses "codex>" prompt
 	"gmi":      true, // Gemini uses "gemini>" prompt
+	"oc":       true, // OpenCode uses custom TUI patterns
 	"cursor":   true,
 	"windsurf": true,
 	"aider":    true,

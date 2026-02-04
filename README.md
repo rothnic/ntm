@@ -101,6 +101,38 @@ ntm spawn myproject --cc=3 --cod=2 --gmi=1
 
 This creates `~/projects/myproject` with all the scaffolding you need, then launches 6 AI agents in tiled panes.
 
+### OpenCode Server Management
+
+NTM provides first-class support for managing per-project OpenCode servers:
+
+```bash
+# Start OpenCode server for current project
+ntm opencode start
+
+# Get attach URL
+ntm opencode url
+
+# Attach using opencode CLI
+opencode attach $(ntm opencode url)
+
+# Show server status with connection count
+ntm opencode status
+
+# List all managed servers
+ntm opencode list
+
+# Stop server (refuses if connections exist)
+ntm opencode stop
+
+# Force stop even with active connections
+ntm opencode stop --force
+
+# Clean up idle servers
+ntm opencode reap
+```
+
+Each project gets an isolated OpenCode server on a stable, hash-based port (28000-29000). Servers persist in `~/.opencode/servers/` and can be managed independently per project. See [docs/opencode.md](docs/opencode.md) for details.
+
 ### Multi-Agent Orchestration
 
 Spawn specific combinations of agents:
@@ -569,6 +601,8 @@ ntm profiles show architect --json   # JSON output with source info
 ntm spawn myproject --profiles=architect,implementer,tester
 ntm spawn myproject --profile-set=backend-team
 ```
+
+> **Adding New Agent Runtimes:** See [docs/adding_agent_runtime.md](docs/adding_agent_runtime.md) for a guide on integrating new AI agents (e.g., OpenCode, custom runtimes).
 
 ### AI Agent Integration (Robot Mode)
 

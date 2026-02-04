@@ -24,6 +24,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
+	"github.com/Dicklesworthstone/ntm/internal/opencode"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/prompt"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
@@ -1180,6 +1181,16 @@ func runKill(session string, force bool, tags []string, noHooks bool) error {
 		if !confirm(fmt.Sprintf("Kill session '%s' with %d pane(s)?", session, len(panes))) {
 			fmt.Println("Aborted.")
 			return nil
+		}
+	}
+
+	// Stop any OpenCode server for this session's project directory before killing
+	// Since tmux session-closed hooks don't fire on kill-session, we must clean up explicitly
+	if ocMgr, err := opencode.NewManager(); err == nil {
+		if err := ocMgr.Stop(dir, true); err == nil {
+			if !jsonOutput {
+				fmt.Printf("✓ Stopped OpenCode server for %s\n", dir)
+			}
 		}
 	}
 

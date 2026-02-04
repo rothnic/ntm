@@ -226,6 +226,8 @@ func agentTypeToString(t tmux.AgentType) string {
 		return "codex"
 	case tmux.AgentGemini:
 		return "gemini"
+	case tmux.AgentOpenCode:
+		return "opencode"
 	default:
 		return "user"
 	}

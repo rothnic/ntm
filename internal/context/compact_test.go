@@ -65,6 +65,8 @@ func TestGetAgentCapabilities(t *testing.T) {
 		{"cod", false, false, ""},
 		{"gemini", false, true, ""},
 		{"gmi", false, true, ""},
+		{"opencode", true, true, "/compact"},
+		{"oc", true, true, "/compact"},
 		{"unknown", false, false, ""},
 	}
 
@@ -118,9 +120,10 @@ func TestGetCompactionCommands(t *testing.T) {
 		wantMinCmds int
 		wantBuiltin bool
 	}{
-		{"claude", 2, true},  // /compact + summarize
-		{"codex", 1, false},  // just summarize
-		{"gemini", 1, false}, // just summarize
+		{"claude", 2, true},    // /compact + summarize
+		{"codex", 1, false},    // just summarize
+		{"gemini", 1, false},   // just summarize
+		{"opencode", 2, true},  // /compact + summarize
 	}
 
 	for _, tt := range tests {

@@ -428,7 +428,7 @@ func componentTitle(name string) string {
 }
 
 // truncateOverflow trims the pack to fit within budget
-func (b *ContextPackBuilder) truncateOverflow(pack *ContextPackFull, budget int) *ContextPackFull {
+func (b *ContextPackBuilder) truncateOverflow(pack *ContextPackFull, _ int) *ContextPackFull {
 	// Re-render with reduced content
 	// Priority: keep triage and s2p, reduce cass and cm first
 	if cass, ok := pack.Components["cass"]; ok && cass.Data != nil {
@@ -531,14 +531,7 @@ func truncateJSON(data json.RawMessage, tokenBudget int) json.RawMessage {
 	return result
 }
 
-// truncateText truncates text to fit within token budget
-func truncateText(text string, tokenBudget int) string {
-	charBudget := tokenBudget * 4
-	if len(text) <= charBudget {
-		return text
-	}
-	return text[:charBudget] + "\n...[truncated]"
-}
+
 
 // optimizeFilesForBudget applies agent-specific file selection strategies
 func (b *ContextPackBuilder) optimizeFilesForBudget(files []string, tokenBudget int) []string {

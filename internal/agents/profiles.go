@@ -15,9 +15,10 @@ import (
 type AgentType string
 
 const (
-	AgentTypeClaude AgentType = "claude"
-	AgentTypeCodex  AgentType = "codex"
-	AgentTypeGemini AgentType = "gemini"
+	AgentTypeClaude   AgentType = "claude"
+	AgentTypeCodex    AgentType = "codex"
+	AgentTypeGemini   AgentType = "gemini"
+	AgentTypeOpenCode AgentType = "opencode"
 )
 
 // Specialization represents task types an agent excels at.
@@ -133,6 +134,26 @@ func (pm *ProfileMatcher) loadDefaults() {
 		},
 		Performance: Performance{
 			SuccessRate: 0.85,
+		},
+	}
+
+	pm.profiles[AgentTypeOpenCode] = &AgentProfile{
+		Type:          AgentTypeOpenCode,
+		Model:         "google/antigravity-claude-sonnet-4-5", // Antigravity-routed model
+		ContextBudget: 200000,                                 // Claude 4 Sonnet context
+		Specializations: []Specialization{
+			SpecQuick,
+			SpecRefactorSmall,
+			SpecAnalysis,
+			SpecComplex, // OpenCode can handle complex tasks with good models
+		},
+		Preferences: Preferences{
+			PreferredFiles:  []string{"*.go", "*.js", "*.ts", "*.py"},
+			AvoidFiles:      []string{"*.lock"},
+			PreferredLabels: []string{"task", "cleanup", "refactor"},
+		},
+		Performance: Performance{
+			SuccessRate: 0.85, // Conservative starting point
 		},
 	}
 }
@@ -522,6 +543,8 @@ func NormalizeAgentType(t string) string {
 		return "codex"
 	case "gemini", "gmi", "google", "gemini-ultra":
 		return "gemini"
+	case "opencode", "oc", "open-code":
+		return "opencode"
 	default:
 		return strings.ToLower(t)
 	}
@@ -537,6 +560,8 @@ func ParseAgentType(s string) AgentType {
 		return AgentTypeCodex
 	case "gemini":
 		return AgentTypeGemini
+	case "opencode":
+		return AgentTypeOpenCode
 	default:
 		return AgentType(normalized)
 	}

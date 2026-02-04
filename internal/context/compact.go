@@ -112,6 +112,13 @@ func GetAgentCapabilities(agentType string) AgentCapabilities {
 			BuiltinCompactCommand:  "",
 			HistoryClearCommand:    "/clear",
 		}
+	case "opencode", "oc":
+		return AgentCapabilities{
+			SupportsBuiltinCompact: true, // OpenCode has /compact + auto-compact at 95%
+			SupportsHistoryClear:   true, // Via session reset
+			BuiltinCompactCommand:  "/compact",
+			HistoryClearCommand:    "", // Use SDK Session.New() instead
+		}
 	default:
 		return AgentCapabilities{}
 	}

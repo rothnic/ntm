@@ -5,30 +5,40 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/opencode"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // UnifiedDetector implements the Detector interface by combining
 // activity, prompt, and error detection into a unified status check.
 type UnifiedDetector struct {
-	config DetectorConfig
+	config   DetectorConfig
+	runtimes []RuntimeDetector
 }
 
-// NewDetector creates a new UnifiedDetector with default configuration
+// NewDetector creates a new UnifiedDetector with default configuration.
 func NewDetector() *UnifiedDetector {
+	mgr, _ := opencode.NewManager()
 	return &UnifiedDetector{
 		config: DefaultConfig(),
+		runtimes: []RuntimeDetector{
+			NewOpenCodeRuntimeAdapter(mgr),
+		},
 	}
 }
 
-// NewDetectorWithConfig creates a new UnifiedDetector with custom configuration
+// NewDetectorWithConfig creates a new UnifiedDetector with custom configuration.
 func NewDetectorWithConfig(config DetectorConfig) *UnifiedDetector {
+	mgr, _ := opencode.NewManager()
 	return &UnifiedDetector{
 		config: config,
+		runtimes: []RuntimeDetector{
+			NewOpenCodeRuntimeAdapter(mgr),
+		},
 	}
 }
 
-// Config returns the current detector configuration
+// Config returns the current detector configuration.
 func (d *UnifiedDetector) Config() DetectorConfig {
 	return d.config
 }
@@ -46,7 +56,7 @@ func (d *UnifiedDetector) Analyze(paneID, paneName, agentType string, output str
 		LastOutput: truncateOutput(output, d.config.OutputPreviewLength),
 	}
 
-	state, errType := d.determineState(output, agentType, lastActivity)
+	state, errType := d.determineState(output, agentType, lastActivity, paneID)
 	status.State = state
 	status.ErrorType = errType
 
@@ -54,7 +64,17 @@ func (d *UnifiedDetector) Analyze(paneID, paneName, agentType string, output str
 }
 
 // determineState calculates state based on output and activity
-func (d *UnifiedDetector) determineState(output, agentType string, lastActivity time.Time) (AgentState, ErrorType) {
+func (d *UnifiedDetector) determineState(output, agentType string, lastActivity time.Time, paneID string) (AgentState, ErrorType) {
+	// 0. Runtime Detectors (High Fidelity)
+	for _, runtime := range d.runtimes {
+		if runtime.CanHandle(agentType) {
+			state, err := runtime.Detect(context.Background(), paneID, output)
+			if err == nil && state != StateUnknown {
+				return state, ErrorNone
+			}
+		}
+	}
+
 	// Detection priority:
 	// 1. Check for errors first (most important)
 	// 2. Check for idle (at prompt)
@@ -109,7 +129,7 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 // working/idle behavior (cc=Claude Code, cod=Codex, gmi=Gemini).
 func isKnownAgentType(agentType string) bool {
 	switch agentType {
-	case "cc", "cod", "gmi", "cursor", "windsurf", "aider":
+	case "cc", "cod", "gmi", "cursor", "windsurf", "aider", "oc", "opencode":
 		return true
 	default:
 		return false
@@ -219,7 +239,7 @@ func (d *UnifiedDetector) Detect(paneID string) (AgentStatus, error) {
 	}
 
 	// Use shared logic
-	state, errType := d.determineState(output, status.AgentType, status.LastActive)
+	state, errType := d.determineState(output, status.AgentType, status.LastActive, paneID)
 	status.State = state
 	status.ErrorType = errType
 
@@ -272,7 +292,7 @@ func (d *UnifiedDetector) DetectAllContext(ctx context.Context, session string) 
 		status.LastOutput = truncateOutput(output, d.config.OutputPreviewLength)
 
 		// Use shared logic
-		state, errType := d.determineState(output, status.AgentType, status.LastActive)
+		state, errType := d.determineState(output, status.AgentType, status.LastActive, pane.Pane.ID)
 		status.State = state
 		status.ErrorType = errType
 

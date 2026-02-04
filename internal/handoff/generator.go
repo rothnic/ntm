@@ -287,6 +287,10 @@ var (
 		regexp.MustCompile(`(?i)Completed task:?\s*(.+)`),
 		// Gemini patterns
 		regexp.MustCompile(`(?i)Task complete:?\s*(.+)`),
+		// OpenCode patterns
+		regexp.MustCompile(`(?i)Changes applied:?\s*(.+)`),
+		regexp.MustCompile(`(?i)Applied changes to\s+(.+)`),
+		regexp.MustCompile(`(?im)^Wrote\s+(.+)`),
 	}
 
 	// Next step patterns

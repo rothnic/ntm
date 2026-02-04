@@ -20,6 +20,7 @@ const (
 	AgentTypeClaude AgentType = "cc"
 	AgentTypeCodex  AgentType = "cod"
 	AgentTypeGemini AgentType = "gmi"
+	AgentTypeOpenCode AgentType = "oc"
 )
 
 // AgentSpec represents a parsed agent specification with optional model
@@ -158,6 +159,8 @@ func ResolveModel(agentType AgentType, modelSpec string) string {
 			return cfg.Models.DefaultCodex
 		case AgentTypeGemini:
 			return cfg.Models.DefaultGemini
+		case AgentTypeOpenCode:
+			return cfg.Models.DefaultOpenCode
 		}
 		return ""
 	}
@@ -171,6 +174,8 @@ func ResolveModel(agentType AgentType, modelSpec string) string {
 		aliases = cfg.Models.Codex
 	case AgentTypeGemini:
 		aliases = cfg.Models.Gemini
+	case AgentTypeOpenCode:
+		aliases = cfg.Models.OpenCode
 	}
 
 	if aliases != nil {
@@ -197,6 +202,8 @@ func ValidateModelAlias(agentType AgentType, alias string) error {
 		aliases = cfg.Models.Codex
 	case AgentTypeGemini:
 		aliases = cfg.Models.Gemini
+	case AgentTypeOpenCode:
+		aliases = cfg.Models.OpenCode
 	}
 
 	if aliases == nil {

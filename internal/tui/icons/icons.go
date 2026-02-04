@@ -48,13 +48,14 @@ type IconSet struct {
 	View   string
 
 	// Branding
-	Palette string
-	Robot   string
-	Claude  string
-	Codex   string
-	Gemini  string
-	All     string
-	User    string
+	Palette  string
+	Robot    string
+	Claude   string
+	Codex    string
+	Gemini   string
+	OpenCode string
+	All      string
+	User     string
 
 	// Categories
 	Quick         string
@@ -116,13 +117,14 @@ var NerdFonts = IconSet{
 	View:   "󰈈",
 
 	// Branding
-	Palette: "",
-	Robot:   "󰚩",
-	Claude:  "󰗣", // Alpha C circle - Anthropic-ish
-	Codex:   "",  // Hubot - OpenAI-ish
-	Gemini:  "󰊤", // Google icon
-	All:     "󰕟", // Broadcast
-	User:    "",  // User icon
+	Palette:  "",
+	Robot:    "󰚩",
+	Claude:   "󰗣", // Alpha C circle - Anthropic-ish
+	Codex:    "",  // Hubot - OpenAI-ish
+	Gemini:   "󰊤", // Google icon
+	OpenCode: "󰘦", // Code brackets - OpenCode
+	All:      "󰕟", // Broadcast
+	User:     "",  // User icon
 
 	// Categories
 	Quick:         "⚡",
@@ -184,13 +186,14 @@ var Unicode = IconSet{
 	View:   "◉",
 
 	// Branding
-	Palette: "◆",
-	Robot:   "⚙",
-	Claude:  "C",
-	Codex:   "O",
-	Gemini:  "G",
-	All:     "*",
-	User:    "U",
+	Palette:  "◆",
+	Robot:    "⚙",
+	Claude:   "C",
+	Codex:    "O",
+	Gemini:   "G",
+	OpenCode: "◇",
+	All:      "*",
+	User:     "U",
 
 	// Categories
 	Quick:         "⚡",
@@ -252,13 +255,14 @@ var ASCII = IconSet{
 	View:   "[V]",
 
 	// Branding
-	Palette: "[P]",
-	Robot:   "[R]",
-	Claude:  "C",
-	Codex:   "O",
-	Gemini:  "G",
-	All:     "*",
-	User:    "U",
+	Palette:  "[P]",
+	Robot:    "[R]",
+	Claude:   "C",
+	Codex:    "O",
+	Gemini:   "G",
+	OpenCode: "[OC]",
+	All:      "*",
+	User:     "U",
 
 	// Categories
 	Quick:         "!",
@@ -427,6 +431,8 @@ func (i IconSet) AgentIcon(agentType string) string {
 		return i.Codex
 	case "gmi", "gemini":
 		return i.Gemini
+	case "oc", "opencode":
+		return i.OpenCode
 	case "user":
 		return i.Terminal
 	default:

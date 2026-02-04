@@ -39,15 +39,16 @@ type SessionState struct {
 
 // AgentConfig represents agent counts by type.
 type AgentConfig struct {
-	Claude int `json:"cc"`
-	Codex  int `json:"cod"`
-	Gemini int `json:"gmi"`
-	User   int `json:"user"`
+	Claude   int `json:"cc"`
+	Codex    int `json:"cod"`
+	Gemini   int `json:"gmi"`
+	OpenCode int `json:"oc"`
+	User     int `json:"user"`
 }
 
 // Total returns the total number of agents.
 func (a AgentConfig) Total() int {
-	return a.Claude + a.Codex + a.Gemini + a.User
+	return a.Claude + a.Codex + a.Gemini + a.OpenCode + a.User
 }
 
 // PaneState represents the state of a single pane.
@@ -65,16 +66,18 @@ type PaneState struct {
 
 // ConfigSnapshot captures relevant config at save time.
 type ConfigSnapshot struct {
-	ClaudeCmd string `json:"claude_cmd,omitempty"`
-	CodexCmd  string `json:"codex_cmd,omitempty"`
-	GeminiCmd string `json:"gemini_cmd,omitempty"`
+	ClaudeCmd   string `json:"claude_cmd,omitempty"`
+	CodexCmd    string `json:"codex_cmd,omitempty"`
+	GeminiCmd   string `json:"gemini_cmd,omitempty"`
+	OpenCodeCmd string `json:"opencode_cmd,omitempty"`
 }
 
 // AgentCommands defines the launch commands for agents.
 type AgentCommands struct {
-	Claude string
-	Codex  string
-	Gemini string
+	Claude   string
+	Codex    string
+	Gemini   string
+	OpenCode string
 }
 
 // SaveOptions configures how a session is saved.

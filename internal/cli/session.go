@@ -155,7 +155,7 @@ func runList(tags []string) error {
 				item.PaneCount = len(panes)
 
 				// Count agent types
-				var claudeCount, codexCount, geminiCount, userCount int
+				var claudeCount, codexCount, geminiCount, opencodeCount, userCount int
 				for _, p := range panes {
 					switch p.Type {
 					case tmux.AgentClaude:
@@ -164,16 +164,19 @@ func runList(tags []string) error {
 						codexCount++
 					case tmux.AgentGemini:
 						geminiCount++
+					case tmux.AgentOpenCode:
+						opencodeCount++
 					default:
 						userCount++
 					}
 				}
 				item.AgentCounts = &output.AgentCountsResponse{
-					Claude: claudeCount,
-					Codex:  codexCount,
-					Gemini: geminiCount,
-					User:   userCount,
-					Total:  len(panes),
+					Claude:   claudeCount,
+					Codex:    codexCount,
+					Gemini:   geminiCount,
+					OpenCode: opencodeCount,
+					User:     userCount,
+					Total:    len(panes),
 				}
 			}
 			items[i] = item

@@ -409,7 +409,7 @@ func TestIncrementalResolver_ListIncrementals_NoSession(t *testing.T) {
 		t.Fatalf("ListIncrementals() error = %v", err)
 	}
 
-	if incrementals != nil && len(incrementals) != 0 {
+	if len(incrementals) != 0 {
 		t.Errorf("ListIncrementals() = %v, want empty", incrementals)
 	}
 }
@@ -433,6 +433,9 @@ func TestPaneChange_States(t *testing.T) {
 	}
 	if modified.Added || modified.Removed {
 		t.Error("Modified pane should not be marked as Added or Removed")
+	}
+	if modified.AgentType != "cc" || modified.Title != "New Title" || modified.NewLines != 50 {
+		t.Error("Modified pane fields not matched")
 	}
 }
 

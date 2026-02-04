@@ -375,6 +375,7 @@ type AgentConfig struct {
 	Claude       string            `toml:"claude"`
 	Codex        string            `toml:"codex"`
 	Gemini       string            `toml:"gemini"`
+	OpenCode     string            `toml:"opencode"`
 	Plugins      map[string]string `toml:"plugins"` // Custom agent commands keyed by type
 	DefaultCount int               `toml:"default_count"`
 }
@@ -648,20 +649,23 @@ func DefaultAssignConfig() AssignConfig {
 
 // ModelsConfig holds model alias configuration for each agent type
 type ModelsConfig struct {
-	DefaultClaude string            `toml:"default_claude"` // Default model for Claude
-	DefaultCodex  string            `toml:"default_codex"`  // Default model for Codex
-	DefaultGemini string            `toml:"default_gemini"` // Default model for Gemini
-	Claude        map[string]string `toml:"claude"`         // Claude model aliases
-	Codex         map[string]string `toml:"codex"`          // Codex model aliases
-	Gemini        map[string]string `toml:"gemini"`         // Gemini model aliases
+	DefaultClaude   string            `toml:"default_claude"`   // Default model for Claude
+	DefaultCodex    string            `toml:"default_codex"`    // Default model for Codex
+	DefaultGemini   string            `toml:"default_gemini"`   // Default model for Gemini
+	DefaultOpenCode string            `toml:"default_opencode"` // Default model for OpenCode
+	Claude          map[string]string `toml:"claude"`           // Claude model aliases
+	Codex           map[string]string `toml:"codex"`            // Codex model aliases
+	Gemini          map[string]string `toml:"gemini"`           // Gemini model aliases
+	OpenCode        map[string]string `toml:"opencode"`         // OpenCode model aliases
 }
 
 // DefaultModels returns the default model configuration with sensible aliases
 func DefaultModels() ModelsConfig {
 	return ModelsConfig{
-		DefaultClaude: "claude-opus-4-5-20251101",
-		DefaultCodex:  "gpt-5.2-codex",
-		DefaultGemini: "gemini-3-pro-preview",
+		DefaultClaude:   "claude-opus-4-5-20251101",
+		DefaultCodex:    "gpt-5.2-codex",
+		DefaultGemini:   "gemini-3-pro-preview",
+		DefaultOpenCode: "github-copilot/gpt-5-mini",
 		Claude: map[string]string{
 			"opus":      "claude-opus-4-5-20251101",
 			"sonnet":    "claude-sonnet-4-20250514",
@@ -682,6 +686,10 @@ func DefaultModels() ModelsConfig {
 			"flash":  "gemini-3-flash",
 			"flash2": "gemini-2.0-flash",
 		},
+		OpenCode: map[string]string{
+			"mini": "github-copilot/gpt-5-mini",
+			"gpt5": "github-copilot/gpt-5-preview",
+		},
 	}
 }
 
@@ -697,6 +705,8 @@ func (m *ModelsConfig) GetModelName(agentType, alias string) string {
 			return m.DefaultCodex
 		case "gemini", "gmi":
 			return m.DefaultGemini
+		case "opencode", "oc":
+			return m.DefaultOpenCode
 		}
 		return ""
 	}
@@ -710,6 +720,8 @@ func (m *ModelsConfig) GetModelName(agentType, alias string) string {
 		aliases = m.Codex
 	case "gemini", "gmi":
 		aliases = m.Gemini
+	case "opencode", "oc":
+		aliases = m.OpenCode
 	}
 
 	if aliases != nil {

@@ -156,6 +156,8 @@ func getAgentCommand(agentType string, cmds AgentCommands) string {
 		return cmds.Codex
 	case "gmi", "gemini":
 		return cmds.Gemini
+	case "oc", "opencode":
+		return cmds.OpenCode
 	default:
 		return ""
 	}

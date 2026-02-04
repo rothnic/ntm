@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/opencode"
 	"github.com/Dicklesworthstone/ntm/internal/plugins"
 	"github.com/Dicklesworthstone/ntm/internal/resilience"
 	"github.com/Dicklesworthstone/ntm/internal/supervisor"
@@ -110,6 +111,21 @@ func runMonitor(session string) error {
 				fmt.Println("Session ended, stopping monitor...")
 				monitor.Stop()
 				_ = resilience.DeleteManifest(session)
+
+				// Clean up OpenCode server if running for this project
+				if manifest.ProjectDir != "" {
+					if mgr, err := opencode.NewManager(); err == nil {
+						if info, err := mgr.Status(manifest.ProjectDir); err == nil && info.Running {
+							fmt.Printf("Stopping OpenCode server for %s...\n", manifest.ProjectDir)
+							if err := mgr.Stop(manifest.ProjectDir, true); err != nil {
+								fmt.Fprintf(os.Stderr, "Failed to stop OpenCode server: %v\n", err)
+							} else {
+								fmt.Println("OpenCode server stopped.")
+							}
+						}
+					}
+				}
+
 				return nil
 			}
 		}

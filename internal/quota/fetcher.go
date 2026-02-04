@@ -34,6 +34,10 @@ var providerCommands = map[Provider]struct {
 		UsageCmd:  "/auth status", // Gemini uses different commands
 		StatusCmd: "/auth status",
 	},
+	ProviderOpenCode: {
+		UsageCmd:  "/status", // OpenCode uses /status for usage info
+		StatusCmd: "/status",
+	},
 }
 
 // FetchQuota sends quota commands to a pane and parses the output
@@ -199,6 +203,8 @@ func parseUsageOutput(info *QuotaInfo, output string, provider Provider) (bool, 
 		return parseCodexUsage(info, output)
 	case ProviderGemini:
 		return parseGeminiUsage(info, output)
+	case ProviderOpenCode:
+		return parseOpenCodeUsage(info, output)
 	default:
 		return false, fmt.Errorf("no parser for provider: %s", provider)
 	}
@@ -213,5 +219,7 @@ func parseStatusOutput(info *QuotaInfo, output string, provider Provider) {
 		parseCodexStatus(info, output)
 	case ProviderGemini:
 		parseGeminiStatus(info, output)
+	case ProviderOpenCode:
+		parseOpenCodeStatus(info, output)
 	}
 }
